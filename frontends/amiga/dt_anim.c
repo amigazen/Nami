@@ -138,7 +138,7 @@ nserror amiga_dt_anim_init(void)
 	return NSERROR_OK;
 }
 
-nserror amiga_dt_anim_create(const content_handler *handler,
+static nserror amiga_dt_anim_create(const content_handler *handler,
 		lwc_string *imime_type, const struct http_parameter *params,
 		llcache_handle *llcache, const char *fallback_charset,
 		bool quirks, struct content **c)
@@ -162,7 +162,7 @@ nserror amiga_dt_anim_create(const content_handler *handler,
 	return NSERROR_OK;
 }
 
-bool amiga_dt_anim_convert(struct content *c)
+static bool amiga_dt_anim_convert(struct content *c)
 {
 	NSLOG(netsurf, INFO, "amiga_dt_anim_convert");
 
@@ -245,7 +245,7 @@ bool amiga_dt_anim_convert(struct content *c)
 	return true;
 }
 
-void amiga_dt_anim_destroy(struct content *c)
+static void amiga_dt_anim_destroy(struct content *c)
 {
 	amiga_dt_anim_content *plugin = (amiga_dt_anim_content *) c;
 
@@ -259,7 +259,7 @@ void amiga_dt_anim_destroy(struct content *c)
 	return;
 }
 
-bool amiga_dt_anim_redraw(struct content *c,
+static bool amiga_dt_anim_redraw(struct content *c,
 		struct content_redraw_data *data, const struct rect *clip,
 		const struct redraw_context *ctx)
 {
@@ -290,7 +290,7 @@ bool amiga_dt_anim_redraw(struct content *c,
  * \param  box     box containing c, or 0 if not an object
  * \param  params  object parameters, or 0 if not an object
  */
-nserror amiga_dt_anim_open(struct content *c, struct browser_window *bw,
+static nserror amiga_dt_anim_open(struct content *c, struct browser_window *bw,
 	struct content *page, struct object_params *params)
 {
 	NSLOG(netsurf, INFO, "amiga_dt_anim_open");
@@ -298,19 +298,19 @@ nserror amiga_dt_anim_open(struct content *c, struct browser_window *bw,
 	return NSERROR_OK;
 }
 
-nserror amiga_dt_anim_close(struct content *c)
+static nserror amiga_dt_anim_close(struct content *c)
 {
 	NSLOG(netsurf, INFO, "amiga_dt_anim_close");
 	return NSERROR_OK;
 }
 
-void amiga_dt_anim_reformat(struct content *c, int width, int height)
+static void amiga_dt_anim_reformat(struct content *c, int width, int height)
 {
 	NSLOG(netsurf, INFO, "amiga_dt_anim_reformat");
 	return;
 }
 
-nserror amiga_dt_anim_clone(const struct content *old, struct content **newc)
+static nserror amiga_dt_anim_clone(const struct content *old, struct content **newc)
 {
 	amiga_dt_anim_content *plugin;
 	nserror error;
@@ -341,7 +341,7 @@ nserror amiga_dt_anim_clone(const struct content *old, struct content **newc)
 	return NSERROR_OK;
 }
 
-content_type amiga_dt_anim_content_type(void)
+static content_type amiga_dt_anim_content_type(void)
 {
 	return CONTENT_IMAGE;
 }

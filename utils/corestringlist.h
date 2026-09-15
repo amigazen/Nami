@@ -40,8 +40,10 @@
 #undef CORESTRING_LWC_STRING
 #define CORESTRING_LWC_STRING(NAME) CORESTRING_LWC_VALUE(NAME, #NAME)
 
+/* No trailing ';' here — call sites already have one. A ';' in the
+ * replacement list breaks vbcc's preprocessor (macro left unexpanded). */
 #undef CORESTRING_DOM_STRING
-#define CORESTRING_DOM_STRING(NAME) CORESTRING_DOM_VALUE(NAME, #NAME);
+#define CORESTRING_DOM_STRING(NAME) CORESTRING_DOM_VALUE(NAME, #NAME)
 
 /* lwc_string strings */
 CORESTRING_LWC_STRING(a);

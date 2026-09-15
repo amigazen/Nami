@@ -21,6 +21,11 @@
 
 #include <stddef.h>
 
+/* Amiga vbcc: string -D values with colons must not go on the Shell command line */
+#if defined(nsamiga) || defined(__AMIGA__)
+#include "amiga/vbcc_defs.h"
+#endif
+
 #if defined(__NetBSD__)
 #include <sys/param.h>
 #if (defined(__NetBSD_Version__) && __NetBSD_Prereq__(8,0,0))
@@ -109,17 +114,20 @@ char *strchrnul(const char *s, int c);
 
 #define HAVE_INETATON
 #if (defined(_WIN32) || \
-     defined(__serenity__))
+     defined(__serenity__) || \
+     (defined(__AMIGA__) && !defined(__amigaos4__)))
 #undef HAVE_INETATON
 #endif
 
 #define HAVE_INETPTON
-#if (defined(_WIN32))
+#if (defined(_WIN32) || \
+     (defined(__AMIGA__) && !defined(__amigaos4__)))
 #undef HAVE_INETPTON
 #endif
 
 #define HAVE_UTSNAME
-#if (defined(_WIN32))
+#if (defined(_WIN32) || \
+     (defined(__AMIGA__) && !defined(__amigaos4__)))
 #undef HAVE_UTSNAME
 #endif
 
@@ -135,7 +143,7 @@ char *realpath(const char *path, char *resolved_path);
 #endif
 
 #define HAVE_SIGPIPE
-#if (defined(_WIN32))
+#if (defined(_WIN32) || defined(__AMIGA__) || defined(__amigaos4__))
 #undef HAVE_SIGPIPE
 #endif
 

@@ -26,14 +26,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef __amigaos4__
-#include <proto/bullet.h>
-#endif
 #include <proto/diskfont.h>
 #include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/intuition.h>
+#ifndef __amigaos4__
+#include <proto/bullet.h>
+#endif
+#include <diskfont/diskfont.h>
 #include <diskfont/diskfonttag.h>
+#include <diskfont/glyph.h>
 #include <diskfont/oterrors.h>
 
 #include <proto/window.h>
@@ -186,8 +188,10 @@ static void ami_font_scan_gui_update(struct ami_font_scan_window *fsw, const cha
 						FUELGAUGE_Level,   glyphs,
 						TAG_DONE);
 	} else {
-		printf("Found %ld glyphs\n", glyphs);
-		printf("Scanning font #%ld (%s)...\n", font_num, font);
+		NSLOG(netsurf, INFO,
+		      "Found %ld glyphs; scanning font #%ld (%s)...",
+		      (long)glyphs, (long)font_num,
+		      font != NULL ? font : "(null)");
 	}
 }
 
@@ -220,15 +224,16 @@ static ULONG ami_font_scan_font(const char *fontname, lwc_string **glypharray)
 	ULONG foundglyphs = 0;
 	lwc_error lerror;
 	ULONG unicoderanges = 0;
+#ifndef __amigaos4__
+	struct GlyphEngine *ge;
+	extern struct Library *BulletBase;
+#endif
 
 	ofont = OpenOutlineFont(fontname, NULL, OFF_OPEN);
 
 	if(!ofont) return 0;
 
-#ifndef __amigaos4__
-	struct BulletBase *BulletBase = ofont->BulletBase;
-#endif
-
+#ifdef __amigaos4__
 	if(ESetInfo(AMI_OFONT_ENGINE,
 		OT_PointHeight, 10 * (1 << 16),
 		OT_GlyphCode, 0x0000,
@@ -252,7 +257,6 @@ static ULONG ami_font_scan_font(const char *fontname, lwc_string **glypharray)
 				TAG_END);
 		}
 	}
-#ifdef __amigaos4__
 	if(EObtainInfo(AMI_OFONT_ENGINE, OT_UnicodeRanges, &unicoderanges, TAG_END) == 0) {
 		if(unicoderanges & UCR_SURROGATES) {
 			NSLOG(netsurf, INFO, "%s supports UTF-16 surrogates",
@@ -265,6 +269,35 @@ static ULONG ami_font_scan_font(const char *fontname, lwc_string **glypharray)
 			OT_UnicodeRanges, unicoderanges,
 			TAG_END);
 	}
+#else
+	ge = ofont->olf_EEngine.ege_GlyphEngine;
+	if (ofont->olf_EEngine.ege_BulletBase != NULL) {
+		BulletBase = ofont->olf_EEngine.ege_BulletBase;
+	}
+	if (ge != NULL && BulletBase != NULL &&
+	    SetInfo(ge,
+		OT_PointHeight, 10 * (1 << 16),
+		OT_GlyphCode, 0x0000,
+		OT_GlyphCode2, 0xffff,
+		TAG_END) == OTERR_Success)
+	{
+		if (ObtainInfo(ge, OT_WidthList, &widthlist, TAG_END) == 0) {
+			gwnode = (struct GlyphWidthEntry *)GetHead((struct List *)widthlist);
+			do {
+				if (gwnode && (glypharray[gwnode->gwe_Code] == NULL)) {
+					lerror = lwc_intern_string(fontname, strlen(fontname),
+							&glypharray[gwnode->gwe_Code]);
+					if (lerror != lwc_error_ok) {
+						continue;
+					}
+					foundglyphs++;
+				}
+			} while ((gwnode = (struct GlyphWidthEntry *)GetSucc(
+					(struct Node *)gwnode)));
+			ReleaseInfo(ge, OT_WidthList, widthlist, TAG_END);
+		}
+	}
+	(void)unicoderanges;
 #endif
 	CloseOutlineFont(ofont, NULL);
 
@@ -395,7 +428,7 @@ static ULONG ami_font_scan_load(const char *filename, lwc_string **glypharray)
 			rargs->RDA_Source.CS_Length = 256;
 			rargs->RDA_Source.CS_CurChr = 0;
 
-			rargs->RDA_DAList = NULL;
+			rargs->RDA_DAList = 0;
 			rargs->RDA_Buffer = NULL;
 			rargs->RDA_BufSiz = 0;
 			rargs->RDA_ExtHelp = NULL;
@@ -510,9 +543,8 @@ void ami_font_scan_init(const char *filename, bool force_scan, bool save,
 
 			NSLOG(netsurf, INFO, "Found %ld fonts", entries);
 
-			win = ami_font_scan_gui_open(entries);
-			found = ami_font_scan_fonts(list, win, glypharray);
-			ami_font_scan_gui_close(win);
+			/* Scan silently — no "Font scanning" splash window. */
+			found = ami_font_scan_fonts(list, NULL, glypharray);
 
 			FreeObjList(list);
 

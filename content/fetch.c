@@ -54,7 +54,12 @@
 #include "content/fetchers.h"
 #include "content/fetchers/resource.h"
 #include "content/fetchers/about/about.h"
+#ifdef WITH_CURL
 #include "content/fetchers/curl.h"
+#endif
+#ifdef WITH_AMIHTTP
+#include "content/fetchers/amihttp.h"
+#endif
 #include "content/fetchers/data.h"
 #include "content/fetchers/file/file.h"
 #include "javascript/fetcher.h"
@@ -293,6 +298,13 @@ nserror fetcher_init(void)
 	}
 #endif
 
+#ifdef WITH_AMIHTTP
+	ret = fetch_amihttp_register();
+	if (ret != NSERROR_OK) {
+		return ret;
+	}
+#endif
+
 	ret = fetch_data_register();
 	if (ret != NSERROR_OK) {
 		return ret;
@@ -522,7 +534,7 @@ fetch_start(nsurl *url,
 
 	/* Ask the queue to run. */
 	if (fetch_dispatch_jobs()) {
-		NSLOG(fetch, DEBUG, "scheduling poll");
+		NSLOG(fetch, INFO, "scheduling poll");
 		/* schedule active fetchers to run again in 10ms */
 		guit->misc->schedule(10, fetcher_poll, NULL);
 	}

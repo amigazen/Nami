@@ -55,10 +55,14 @@
 #include "replace.h"
 #else
 #include <stdarg.h>
-#if !defined(__BEOS__) && __GNUC__ > 2
-/* Assume we've got va_copy */
-#define HAVE_VA_COPY
 #include <string.h>
+/* PosixLib/vbcc provide va_copy in stdarg.h — do not redefine it. */
+#if defined(__VBCC__) || defined(va_copy) || defined(__va_copy)
+#ifndef HAVE_VA_COPY
+#define HAVE_VA_COPY
+#endif
+#elif !defined(__BEOS__) && defined(__GNUC__) && (__GNUC__ > 2)
+#define HAVE_VA_COPY
 #endif
 #endif
 #include "talloc.h"

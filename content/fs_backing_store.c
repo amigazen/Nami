@@ -1422,6 +1422,10 @@ initialise(const struct llcache_store_parameters *parameters)
 	struct store_state *newstate;
 	nserror ret;
 
+	NSLOG(netsurf, INFO, "FS backing store initialise path=%s limit=%"PRIsizet,
+	      parameters->path ? parameters->path : "(null)",
+	      parameters->limit);
+
 	/* check backing store is not already initialised */
 	if (storestate != NULL) {
 		return NSERROR_INIT_FAILED;
@@ -1429,6 +1433,7 @@ initialise(const struct llcache_store_parameters *parameters)
 
 	/* if we are not allowed any space simply give up on init */
 	if (parameters->limit == 0) {
+		NSLOG(netsurf, INFO, "FS backing store disabled (limit 0)");
 		return NSERROR_OK;
 	}
 

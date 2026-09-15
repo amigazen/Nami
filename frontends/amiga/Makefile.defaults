@@ -6,12 +6,17 @@
 # Valid options: YES, NO
 NETSURF_USE_LIBICONV_PLUG := NO
 
+# Prefer amihttp.library over libcurl for HTTP(S) on Amiga.
+# Valid options: YES, NO
+NETSURF_USE_AMIHTTP := YES
+NETSURF_USE_CURL := NO
+
 # Use AmiSSL for secure connections.
 # Either this or NETSURF_USE_OPENSSL should be specified, not both.
-# libcurl must have been built against the same library.
+# Not required when NETSURF_USE_AMIHTTP is YES (amihttp owns TLS).
 # Valid options: YES, NO
 NETSURF_USE_OPENSSL := NO
-NETSURF_USE_AMISSL := YES
+NETSURF_USE_AMISSL := NO
 
 # Enable NetSurf's use of librosprite for displaying RISC OS Sprites
 # Valid options: YES, NO, AUTO

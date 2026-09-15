@@ -27,12 +27,12 @@
 
 NSOPTION_STRING(url_file, NULL)
 NSOPTION_STRING(hotlist_file, NULL)
-NSOPTION_STRING(pubscreen_name, NULL)
+NSOPTION_STRING(pubscreen_name, "Workbench")
 NSOPTION_STRING(screen_modeid, NULL)
 NSOPTION_INTEGER(screen_compositing, -1)
 NSOPTION_INTEGER(screen_ydpi, 85)
 NSOPTION_INTEGER(cache_bitmaps, 0)
-NSOPTION_STRING(theme, "PROGDIR:Resources/Themes/Default")
+NSOPTION_STRING(theme, "PROGDIR:Resources/Themes/AISSClassic")
 NSOPTION_BOOL(clipboard_write_utf8, false)
 NSOPTION_BOOL(truecolour_mouse_pointers, false)
 NSOPTION_BOOL(os_mouse_pointers, true)
@@ -64,7 +64,12 @@ NSOPTION_STRING(font_surrogate, NULL)
 NSOPTION_STRING(font_unicode_file, NULL)
 NSOPTION_BOOL(font_unicode_only, false)
 NSOPTION_BOOL(font_antialiasing, true)
+/* Legacy: true = diskfont bitmap engine when font_engine is AUTO and
+ * ttengine.library is not available. Prefer font_engine for new configs. */
 NSOPTION_BOOL(bitmap_fonts, false)
+/* 0=auto (ttengine if present, else bullet/diskfont), 1=bullet, 2=diskfont,
+ * 3=ttengine — see AMI_FONTENG_* in amiga/font.h */
+NSOPTION_INTEGER(font_engine, 0)
 NSOPTION_BOOL(drag_save_icons, true)
 NSOPTION_INTEGER(web_search_width, 0)
 NSOPTION_BOOL(window_simple_refresh, true)

@@ -309,7 +309,7 @@ static BOOL ami_search_event(void *w)
 * \param p the pointer sent to search_verify_new() / search_create_context()
 */
 
-void ami_search_set_status(bool found, void *p)
+static void ami_search_set_status(bool found, void *p)
 {
 }
 
@@ -319,7 +319,7 @@ void ami_search_set_status(bool found, void *p)
 * \param p the pointer sent to search_verify_new() / search_create_context()
 */
 
-void ami_search_set_hourglass(bool active, void *p)
+static void ami_search_set_hourglass(bool active, void *p)
 {
 	if(active)
 		ami_update_pointer(fwin->win, GUI_POINTER_WAIT);
@@ -348,7 +348,7 @@ char *ami_search_string(void)
 * \param p the pointer sent to search_verify_new() / search_create_context()
 */
 
-void ami_search_add_recent(const char *string, void *p)
+static void ami_search_add_recent(const char *string, void *p)
 {
 }
 
@@ -358,7 +358,7 @@ void ami_search_add_recent(const char *string, void *p)
 * \param p the pointer sent to search_verify_new() / search_create_context()
 */
 
-void ami_search_set_forward_state(bool active, void *p)
+static void ami_search_set_forward_state(bool active, void *p)
 {
 	RefreshSetGadgetAttrs((struct Gadget *)fwin->objects[GID_S_NEXT],
 			fwin->win, NULL,
@@ -372,7 +372,7 @@ void ami_search_set_forward_state(bool active, void *p)
 * \param p the pointer sent to search_verify_new() / search_create_context()
 */
 
-void ami_search_set_back_state(bool active, void *p)
+static void ami_search_set_back_state(bool active, void *p)
 {
 	RefreshSetGadgetAttrs((struct Gadget *)fwin->objects[GID_S_PREV],
 			fwin->win, NULL,

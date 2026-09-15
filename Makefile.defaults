@@ -35,6 +35,11 @@
 # Valid options: YES, NO, AUTO				  (highly recommended)
 NETSURF_USE_CURL := YES
 
+# Enable HTTP(S) fetching via amihttp.library instead of libcurl.
+# When YES, set NETSURF_USE_CURL := NO for the Amiga target.
+# Valid options: YES, NO
+NETSURF_USE_AMIHTTP := NO
+
 # Enable NetSurf's use of openssl for processing certificates
 # Valid options: YES, NO, AUTO
 NETSURF_USE_OPENSSL := AUTO
@@ -109,7 +114,7 @@ NETSURF_STRIP_BINARY := NO
 # replacement is OS, the next two are major/minor version.
 # Note that the "Mozilla/5.0" prefix is a requirement to enable modern
 # web standards on many websites. It should not be removed or modified.
-NETSURF_UA_FORMAT_STRING := "Mozilla/5.0 (%s) NetSurf/%d.%d"
+NETSURF_UA_FORMAT_STRING := "Mozilla/5.0 (%s; rv:115.0) Gecko/20100101 Firefox/115.0 NetSurf/%d.%d"
 
 # Default home page, if one is not defined by the user.  Note that this
 # option does not apply to the RISC OS version, as it has its own local

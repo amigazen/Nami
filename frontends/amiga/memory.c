@@ -20,154 +20,264 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 #include <exec/interrupts.h>
+#include <exec/memory.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "amiga/memory.h"
 #include "amiga/os3support.h"
-#include "amiga/schedule.h"
 #include "content/llcache.h"
 #include "utils/log.h"
-
-ULONG __slab_max_size = 2048; /* Enable clib2's slab allocator */
 
 enum {
 	PURGE_NONE = 0,
 	PURGE_STEP1,
-	PURGE_STEP2,
-	PURGE_DONE_STEP1,
-	PURGE_DONE_STEP2
+	PURGE_DONE_STEP1
 };
 static int low_mem_status = PURGE_NONE;
+
+/* Tracked allocations — catch bad/double frees before they trash MemList */
+#define AMI_MEM_MAGIC		0x4E534D45UL /* 'NSME' */
+#define AMI_MEM_MAGIC_DEAD	0xDEADF00DUL
+
+struct ami_mem_hdr {
+	ULONG magic;
+	ULONG size; /* user payload size */
+	struct ami_mem_hdr *next;
+	struct ami_mem_hdr *prev;
+};
+
+static struct ami_mem_hdr *ami_mem_live = NULL;
+static ULONG ami_mem_live_count = 0;
+
+static void ami_mem_link(struct ami_mem_hdr *h)
+{
+	h->prev = NULL;
+	h->next = ami_mem_live;
+	if (ami_mem_live != NULL) {
+		ami_mem_live->prev = h;
+	}
+	ami_mem_live = h;
+	ami_mem_live_count++;
+}
+
+static void ami_mem_unlink(struct ami_mem_hdr *h)
+{
+	if (h->prev != NULL) {
+		h->prev->next = h->next;
+	} else {
+		ami_mem_live = h->next;
+	}
+	if (h->next != NULL) {
+		h->next->prev = h->prev;
+	}
+	if (ami_mem_live_count > 0) {
+		ami_mem_live_count--;
+	}
+}
+
+static struct ami_mem_hdr *ami_mem_hdr_from_user(void *p)
+{
+	return ((struct ami_mem_hdr *)p) - 1;
+}
+
+static BOOL ami_mem_validate(struct ami_mem_hdr *h, ULONG expect_size, const char *op)
+{
+	if (h == NULL) {
+		NSLOG(netsurf, ERROR, "mem %s: NULL header", op);
+		return FALSE;
+	}
+	if (h->magic == AMI_MEM_MAGIC_DEAD) {
+		NSLOG(netsurf, ERROR, "mem %s: double-free at %p", op, (void *)(h + 1));
+		return FALSE;
+	}
+	if (h->magic != AMI_MEM_MAGIC) {
+		NSLOG(netsurf, ERROR, "mem %s: bad magic 0x%lx at %p (not our block)",
+		      op, (unsigned long)h->magic, (void *)(h + 1));
+		return FALSE;
+	}
+	if (expect_size != 0 && h->size != expect_size) {
+		NSLOG(netsurf, ERROR, "mem %s: size mismatch have=%lu expect=%lu at %p",
+		      op, (unsigned long)h->size, (unsigned long)expect_size,
+		      (void *)(h + 1));
+		return FALSE;
+	}
+	return TRUE;
+}
 
 /* Special clear (ie. non-zero) */
 void *ami_memory_clear_alloc(size_t size, UBYTE value)
 {
-	void *mem = malloc(size);
-	if (mem) memset(mem, value, size);
-	return mem;
+	struct ami_mem_hdr *h;
+
+	h = AllocVec(sizeof(*h) + size, MEMF_ANY);
+	if (h == NULL) {
+		return NULL;
+	}
+	h->magic = AMI_MEM_MAGIC;
+	h->size = (ULONG)size;
+	ami_mem_link(h);
+	memset(h + 1, value, size);
+	return (void *)(h + 1);
 }
 
-/* clib2 slab allocator stats */
-static int ami_memory_slab_usage_cb(const struct __slab_usage_information * sui)
+void ami_memory_clear_free(void *p)
 {
-	if(sui->sui_slab_index <= 1) {
-		NSLOG(netsurf, INFO, "clib2 slab usage:");
-		NSLOG(netsurf, INFO,
-		      "  The size of all slabs, in bytes: %ld",
-		      sui->sui_slab_size);
-		NSLOG(netsurf, INFO,
-		      "  Number of allocations which are not managed by slabs: %ld",
-		      sui->sui_num_single_allocations);
-		NSLOG(netsurf, INFO,
-		      "  Total number of bytes allocated for memory not managed by slabs: %ld",
-		      sui->sui_total_single_allocation_size);
-		NSLOG(netsurf, INFO,
-		      "  Number of slabs currently in play: %ld",
-		      sui->sui_num_slabs);
-		NSLOG(netsurf, INFO,
-		      "  Number of currently unused slabs: %ld",
-		      sui->sui_num_empty_slabs);
-		NSLOG(netsurf, INFO,
-		      "  Number of slabs in use which are completely filled with data: %ld",
-		      sui->sui_num_full_slabs);
-		NSLOG(netsurf, INFO,
-		      "  Total number of bytes allocated for all slabs: %ld",
-		      sui->sui_total_slab_allocation_size);
-	}
-	NSLOG(netsurf, INFO, "Slab %d", sui->sui_slab_index);
-	NSLOG(netsurf, INFO, "  Memory chunk size managed by this slab: %ld",
-	      sui->sui_chunk_size);
-	NSLOG(netsurf, INFO,
-	      "  Number of memory chunks that fit in this slab: %ld",
-	      sui->sui_num_chunks);
-	NSLOG(netsurf, INFO,
-	      "  Number of memory chunks used in this slab: %ld",
-	      sui->sui_num_chunks_used);
+	struct ami_mem_hdr *h;
 
-	return 0;
+	if (p == NULL) {
+		return;
+	}
+	h = ami_mem_hdr_from_user(p);
+	if (ami_mem_validate(h, 0, "clear_free") == FALSE) {
+		return;
+	}
+	ami_mem_unlink(h);
+	h->magic = AMI_MEM_MAGIC_DEAD;
+	FreeVec(h);
 }
 
-static int ami_memory_slab_alloc_cb(const struct __slab_allocation_information *sai)
+/* Exec memory pools for fixed-size item allocations (bitmap structs, pens, etc.) */
+APTR ami_memory_itempool_create(ULONG item_size)
 {
-	if(sai->sai_allocation_index <= 1) {
-		NSLOG(netsurf, INFO, "clib2 allocation usage:");
-		NSLOG(netsurf, INFO,
-		      "  Number of allocations which are not managed by slabs: %ld",
-		      sai->sai_num_single_allocations);
-		NSLOG(netsurf, INFO,
-		      "  Total number of bytes allocated for memory not managed by slabs: %ld",
-		      sai->sai_total_single_allocation_size);
-	}
-	NSLOG(netsurf, INFO, "Alloc %d", sai->sai_allocation_index);
-	NSLOG(netsurf, INFO, "  Size of this allocation, as requested: %ld",
-	      sai->sai_allocation_size);
-	NSLOG(netsurf, INFO,
-	      "  Total size of this allocation, including management data: %ld",
-	      sai->sai_total_allocation_size);
+	ULONG puddle;
+	ULONG total;
 
-	return 0;
+	total = item_size + (ULONG)sizeof(struct ami_mem_hdr);
+	puddle = total * 32UL;
+	if (puddle < 4096UL) {
+		puddle = 4096UL;
+	}
+
+	/* thresh == puddle so AllocPooled pulls from puddles for these sizes */
+	return CreatePool(MEMF_ANY, puddle, puddle);
 }
 
-static int ami_memory_slab_stats_cb(void *user_data, const char *line, size_t line_length)
+void ami_memory_itempool_delete(APTR pool)
 {
-	BPTR fh = (BPTR)user_data;
-	long err = FPuts(fh, line);
-
-	if(err != 0) {
-		return -1;
-	} else {
-		return 0;
+	if (pool != NULL) {
+		DeletePool(pool);
 	}
+}
+
+APTR ami_memory_itempool_alloc(APTR pool, ULONG size)
+{
+	struct ami_mem_hdr *h;
+	ULONG total;
+
+	total = size + (ULONG)sizeof(struct ami_mem_hdr);
+
+	if (pool == NULL) {
+		return ami_memory_clear_alloc(size, 0);
+	}
+
+	h = AllocPooled(pool, total);
+	if (h == NULL) {
+		return NULL;
+	}
+	h->magic = AMI_MEM_MAGIC;
+	h->size = size;
+	ami_mem_link(h);
+	return (void *)(h + 1);
+}
+
+void ami_memory_itempool_free(APTR pool, APTR item, ULONG size)
+{
+	struct ami_mem_hdr *h;
+	ULONG total;
+
+	if (item == NULL) {
+		return;
+	}
+
+	h = ami_mem_hdr_from_user(item);
+	if (ami_mem_validate(h, size, "itempool_free") == FALSE) {
+		return;
+	}
+
+	ami_mem_unlink(h);
+	h->magic = AMI_MEM_MAGIC_DEAD;
+	total = h->size + (ULONG)sizeof(struct ami_mem_hdr);
+
+	if (pool == NULL) {
+		FreeVec(h);
+		return;
+	}
+	FreePooled(pool, h, total);
 }
 
 void ami_memory_slab_dump(BPTR fh)
 {
-	__get_slab_usage(ami_memory_slab_usage_cb);
-	__get_slab_allocations(ami_memory_slab_alloc_cb);
-	__get_slab_stats(fh, ami_memory_slab_stats_cb);
+	char line[160];
+
+	sprintf(line,
+		"Exec memory: largest=%lu avail=%lu chip largest=%lu avail=%lu tracked=%lu\n",
+		(unsigned long)AvailMem(MEMF_ANY | MEMF_LARGEST),
+		(unsigned long)AvailMem(MEMF_ANY),
+		(unsigned long)AvailMem(MEMF_CHIP | MEMF_LARGEST),
+		(unsigned long)AvailMem(MEMF_CHIP),
+		(unsigned long)ami_mem_live_count);
+
+	if (fh != 0) {
+		FPuts(fh, line);
+	} else {
+		NSLOG(netsurf, INFO, "%s", line);
+	}
 }
 
-/* Low memory handler */
+/* Low memory handler — purge llcache only (no clib2 slab sweep). */
 static void ami_memory_low_mem_handler(void *p)
 {
-	if(low_mem_status == PURGE_STEP1) {
+	(void)p;
+
+	if (low_mem_status == PURGE_STEP1) {
 		NSLOG(netsurf, INFO, "Purging llcache");
 		llcache_clean(true);
 		low_mem_status = PURGE_DONE_STEP1;
 	}
+}
 
-	if(low_mem_status == PURGE_STEP2) {
-		NSLOG(netsurf, INFO, "Purging unused slabs");
-		__free_unused_slabs();
-		low_mem_status = PURGE_DONE_STEP2;
+/* Run from the main task only — never from the mem-handler interrupt. */
+void ami_memory_poll(void)
+{
+	if (low_mem_status == PURGE_STEP1) {
+		ami_memory_low_mem_handler(NULL);
 	}
 }
 
-static ASM ULONG ami_memory_handler(REG(a0, struct MemHandlerData *mhd), REG(a1, void *userdata), REG(a6, struct ExecBase *execbase))
+static ASM ULONG ami_memory_handler(REG(a0, struct MemHandlerData *mhd),
+		REG(a1, void *userdata), REG(a6, struct ExecBase *execbase))
 {
-	if(low_mem_status == PURGE_DONE_STEP2) {
+	(void)mhd;
+	(void)userdata;
+	(void)execbase;
+
+	if (low_mem_status == PURGE_DONE_STEP1) {
 		low_mem_status = PURGE_NONE;
 		return MEM_ALL_DONE;
 	}
 
-	if(low_mem_status == PURGE_DONE_STEP1) {
-		low_mem_status = PURGE_STEP2;
-	}
-
-	if(low_mem_status == PURGE_NONE) {
+	if (low_mem_status == PURGE_NONE) {
 		low_mem_status = PURGE_STEP1;
 	}
 
-	ami_schedule(1, ami_memory_low_mem_handler, NULL);
-
-	return MEM_TRY_AGAIN;
+	/*
+	 * Do not call ami_schedule() here: mem handlers run in Exec's
+	 * allocation path / interrupt-like context. Scheduling caused an
+	 * infinite MEM_TRY_AGAIN hang when full-screen chip allocs failed.
+	 * Fail this allocation; ami_memory_poll() purges from the main loop.
+	 */
+	return MEM_ALL_DONE;
 }
- 
+
 struct Interrupt *ami_memory_init(void)
 {
 	struct Interrupt *memhandler = malloc(sizeof(struct Interrupt));
-	if(memhandler == NULL) return NULL; // we're screwed
+	if (memhandler == NULL) {
+		return NULL;
+	}
 
-	memhandler->is_Node.ln_Pri = -127; // low down as will be slow
+	memhandler->is_Node.ln_Pri = -127;
 	memhandler->is_Node.ln_Name = "NetSurf low memory handler";
 	memhandler->is_Data = NULL;
 	memhandler->is_Code = (APTR)&ami_memory_handler;
@@ -178,11 +288,15 @@ struct Interrupt *ami_memory_init(void)
 
 void ami_memory_fini(struct Interrupt *memhandler)
 {
-	if(memhandler != NULL) {
+	if (ami_mem_live_count != 0) {
+		NSLOG(netsurf, WARNING, "mem fini: %lu tracked blocks still live",
+		      (unsigned long)ami_mem_live_count);
+	}
+
+	if (memhandler != NULL) {
 		RemMemHandler(memhandler);
 		free(memhandler);
 	}
 }
 
 #endif
-

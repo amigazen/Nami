@@ -38,6 +38,7 @@
 #include <workbench/icon.h>
 
 #include "utils/messages.h"
+#include "utils/log.h"
 #include "utils/nsoption.h"
 #include "utils/utils.h"
 #include "desktop/searchweb.h"
@@ -136,27 +137,44 @@ void ami_theme_init(void)
 	char themefile[1024];
 	BPTR lock = 0;
 
-	strcpy(themefile,nsoption_charp(theme));
-	AddPart(themefile,"Theme",100);
+	strcpy(themefile, nsoption_charp(theme));
+	AddPart(themefile, "Theme", sizeof(themefile));
 
-	lock = Lock(themefile,ACCESS_READ);
+	NSLOG(netsurf, INFO, "Looking for theme file %s", themefile);
+	lock = Lock(themefile, ACCESS_READ);
 
-	if(!lock)
-	{
-		amiga_warn_user("ThemeApplyErr",nsoption_charp(theme));
-		strcpy(themefile,"PROGDIR:Resources/Themes/Default/Theme");
-		nsoption_set_charp(theme, (char *)strdup("PROGDIR:Resources/Themes/Default"));
-	}
-	else
-	{
+	if (!lock) {
+		NSLOG(netsurf, WARNING,
+		      "Theme not found at %s - copy Themes to PROGDIR:Resources/",
+		      themefile);
+		amiga_warn_user("ThemeApplyErr", nsoption_charp(theme));
+		strcpy(themefile, "PROGDIR:Resources/Themes/AISSClassic/Theme");
+		nsoption_set_charp(theme,
+				   (char *)strdup("PROGDIR:Resources/Themes/AISSClassic"));
+	} else {
 		UnLock(lock);
 	}
 
-	lock = Lock(themefile,ACCESS_READ);
-	if(lock)
-	{
+	lock = Lock(themefile, ACCESS_READ);
+	if (lock) {
 		UnLock(lock);
+		NSLOG(netsurf, INFO, "Loading theme from %s", themefile);
 		messages_add_from_file(themefile);
+	} else {
+		/* Last resort: bundled Default theme */
+		strcpy(themefile, "PROGDIR:Resources/Themes/Default/Theme");
+		nsoption_set_charp(theme,
+				   (char *)strdup("PROGDIR:Resources/Themes/Default"));
+		lock = Lock(themefile, ACCESS_READ);
+		if (lock) {
+			UnLock(lock);
+			NSLOG(netsurf, INFO, "Loading theme from %s", themefile);
+			messages_add_from_file(themefile);
+		} else {
+			NSLOG(netsurf, WARNING,
+			      "Cannot open theme file %s - toolbar images will be missing",
+			      themefile);
+		}
 	}
 }
 
@@ -182,6 +200,18 @@ void ami_theme_throbber_setup(void)
 	if(throbber_update_interval == 0) throbber_update_interval = 250;
 
 	bm = ami_bitmap_from_datatype(throbberfile);
+	if (bm == NULL) {
+		NSLOG(netsurf, WARNING,
+		      "ami_theme_throbber_setup: failed to load %s",
+		      throbberfile);
+		throbber = NULL;
+		throbber_nsbm = NULL;
+		return;
+	}
+
+	NSLOG(netsurf, INFO,
+	      "ami_theme_throbber_setup: convert %dx%d native",
+	      bitmap_get_width(bm), bitmap_get_height(bm));
 	throbber = ami_bitmap_get_native(bm, bitmap_get_width(bm), bitmap_get_height(bm),
 		ami_plot_screen_is_palettemapped(), NULL, nsoption_colour(sys_colour_ButtonFace));
 
@@ -197,19 +227,42 @@ void ami_theme_throbber_free(void)
 
 void ami_get_theme_filename(char *filename, const char *themestring, bool protocol)
 {
-	if(protocol)
-		strcpy(filename,"file:///");
-	else
-		strcpy(filename,"");
+	const char *leaf;
+	BPTR lock;
 
-	if(messages_get(themestring)[0] == '*')
-	{
-		strncat(filename,messages_get(themestring)+1,100);
-	}
+	if (protocol)
+		strcpy(filename, "file:///");
 	else
-	{
+		strcpy(filename, "");
+
+	leaf = messages_get(themestring);
+	if (leaf[0] == '*') {
+		/* Absolute Amiga path stored in Theme (e.g. *PROGDIR:Resources/...) */
+		strncat(filename, leaf + 1, 1000);
+	} else if (strcmp(leaf, themestring) == 0) {
+		/* Missing Theme entry — leave empty so BitMapObj is skipped */
+		filename[0] = '\0';
+		NSLOG(netsurf, WARNING,
+		      "theme key '%s' unresolved (is Themes/Default installed?)",
+		      themestring);
+		return;
+	} else if (leaf[0] == '\0') {
+		/* Intentionally blank Theme value (e.g. unused addtab glyphs) */
+		filename[0] = '\0';
+		return;
+	} else {
+		/* Relative leaf under theme drawer — Amiga AddPart, not POSIX join */
 		strcat(filename, nsoption_charp(theme));
-		AddPart(filename, messages_get(themestring), 100);
+		AddPart(filename, leaf, 1024);
+	}
+
+	if (!protocol && filename[0] != '\0') {
+		lock = Lock(filename, ACCESS_READ);
+		if (lock != 0) {
+			UnLock(lock);
+		} else {
+			NSLOG(netsurf, WARNING, "theme image missing: %s", filename);
+		}
 	}
 }
 

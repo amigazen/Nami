@@ -17,6 +17,7 @@
  */
 
 #include "amiga/os3support.h"
+#include <stdlib.h>
 #include <string.h>
 
 #include <proto/timer.h>
@@ -99,12 +100,12 @@ static void ami_font_cache_cleanup(struct MinList *ami_font_cache_list)
 		fnode = node->objstruct;
 		GetSysTime(&curtime);
 		SubTime(&curtime, &fnode->lastused);
-		if(curtime.Seconds > 300)
+		if(curtime.tv_secs > 300)
 		{
 			NSLOG(netsurf, INFO,
 			      "Freeing %s not used for %ld seconds",
 			      node->dtz_Node.ln_Name,
-			      curtime.Seconds);
+			      curtime.tv_secs);
 			DelObject(node);
 		}
 	} while((node=nnode));

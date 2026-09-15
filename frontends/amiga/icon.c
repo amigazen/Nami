@@ -119,7 +119,7 @@ static const char *amiga_icon_types[] = {
 CONTENT_FACTORY_REGISTER_TYPES(amiga_icon, amiga_icon_types, 
 		amiga_icon_content_handler)
 
-nserror amiga_icon_create(const content_handler *handler,
+static nserror amiga_icon_create(const content_handler *handler,
 		lwc_string *imime_type, const struct http_parameter *params,
 		struct llcache_handle *llcache, const char *fallback_charset,
 		bool quirks, struct content **c)
@@ -149,7 +149,7 @@ nserror amiga_icon_create(const content_handler *handler,
  * No conversion is necessary. We merely read the icon dimensions.
  */
 
-bool amiga_icon_convert(struct content *c)
+static bool amiga_icon_convert(struct content *c)
 {
 	amiga_icon_content *icon_c = (amiga_icon_content *)c;	
 	union content_msg_data msg_data;
@@ -269,7 +269,7 @@ bool amiga_icon_convert(struct content *c)
  * Destroy a CONTENT_AMIGA_ICON and free all resources it owns.
  */
 
-void amiga_icon_destroy(struct content *c)
+static void amiga_icon_destroy(struct content *c)
 {
 	amiga_icon_content *icon_c = (amiga_icon_content *)c;	
 
@@ -282,7 +282,7 @@ void amiga_icon_destroy(struct content *c)
  * Redraw a CONTENT_AMIGA_ICON.
  */
 
-bool amiga_icon_redraw(struct content *c,
+static bool amiga_icon_redraw(struct content *c,
 		struct content_redraw_data *data, const struct rect *clip,
 		const struct redraw_context *ctx)
 {
@@ -305,7 +305,7 @@ bool amiga_icon_redraw(struct content *c,
 }
 
 
-nserror amiga_icon_clone(const struct content *old, struct content **newc)
+static nserror amiga_icon_clone(const struct content *old, struct content **newc)
 {
 	amiga_icon_content *ai;
 	nserror error;
@@ -334,7 +334,7 @@ nserror amiga_icon_clone(const struct content *old, struct content **newc)
 	return NSERROR_OK;
 }
 
-content_type amiga_icon_content_type(void)
+static content_type amiga_icon_content_type(void)
 {
 	return CONTENT_IMAGE;
 }

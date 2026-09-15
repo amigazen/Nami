@@ -785,7 +785,7 @@ void browser_window_resize_frame(struct browser_window *bw, int x, int y)
 }
 
 
-bool browser_window_resolve_frame_dimension(struct browser_window *bw,
+static bool browser_window_resolve_frame_dimension(struct browser_window *bw,
 		struct browser_window *sibling,
 		int x, int y, bool width, bool height)
 {

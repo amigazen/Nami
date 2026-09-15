@@ -741,7 +741,7 @@ static nserror hotlist_load_directory(dom_node *ul, hotlist_load_ctx *ctx)
 
 
 /* Documented above, in forward declaration */
-nserror hotlist_load_directory_cb(dom_node *node, void *ctx)
+static nserror hotlist_load_directory_cb(dom_node *node, void *ctx)
 {
 	/* TODO: return appropriate errors */
 	hotlist_load_ctx *current_ctx = ctx;

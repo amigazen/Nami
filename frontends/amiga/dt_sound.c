@@ -121,7 +121,7 @@ nserror amiga_dt_sound_init(void)
 	return NSERROR_OK;
 }
 
-nserror amiga_dt_sound_create(const content_handler *handler,
+static nserror amiga_dt_sound_create(const content_handler *handler,
 		lwc_string *imime_type, const struct http_parameter *params,
 		llcache_handle *llcache, const char *fallback_charset,
 		bool quirks, struct content **c)
@@ -147,7 +147,7 @@ nserror amiga_dt_sound_create(const content_handler *handler,
 	return NSERROR_OK;
 }
 
-bool amiga_dt_sound_convert(struct content *c)
+static bool amiga_dt_sound_convert(struct content *c)
 {
 	NSLOG(netsurf, INFO, "amiga_dt_sound_convert");
 
@@ -179,7 +179,7 @@ bool amiga_dt_sound_convert(struct content *c)
 	return true;
 }
 
-void amiga_dt_sound_destroy(struct content *c)
+static void amiga_dt_sound_destroy(struct content *c)
 {
 	amiga_dt_sound_content *plugin = (amiga_dt_sound_content *) c;
 
@@ -190,7 +190,7 @@ void amiga_dt_sound_destroy(struct content *c)
 	return;
 }
 
-bool amiga_dt_sound_redraw(struct content *c,
+static bool amiga_dt_sound_redraw(struct content *c,
 		struct content_redraw_data *data, const struct rect *clip,
 		const struct redraw_context *ctx)
 {
@@ -223,7 +223,7 @@ bool amiga_dt_sound_redraw(struct content *c,
 }
 
 
-nserror amiga_dt_sound_open(struct content *c, struct browser_window *bw,
+static nserror amiga_dt_sound_open(struct content *c, struct browser_window *bw,
 	struct content *page, struct object_params *params)
 {
 	amiga_dt_sound_content *plugin = (amiga_dt_sound_content *) c;
@@ -254,7 +254,7 @@ nserror amiga_dt_sound_open(struct content *c, struct browser_window *bw,
 }
 
 
-nserror amiga_dt_sound_clone(const struct content *old, struct content **newc)
+static nserror amiga_dt_sound_clone(const struct content *old, struct content **newc)
 {
 	amiga_dt_sound_content *plugin;
 	nserror error;
@@ -285,7 +285,7 @@ nserror amiga_dt_sound_clone(const struct content *old, struct content **newc)
 	return NSERROR_OK;
 }
 
-content_type amiga_dt_sound_content_type(void)
+static content_type amiga_dt_sound_content_type(void)
 {
 	return CONTENT_PLUGIN;
 }

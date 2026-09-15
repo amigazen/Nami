@@ -21,12 +21,13 @@
 #include "amiga/os3support.h"
 #include <libwapcaplet/libwapcaplet.h>
 
-/* Compatibliity define used by font.c and font_scan.c
- * It's here because this file is included by both. */
+/* Compatibility define used by font.c and font_scan.c.
+ * OS4: diskfont ESetInfo on EGlyphEngine.
+ * OS3: bullet.library SetInfo on GlyphEngine (BulletExamples). */
 #ifdef __amigaos4__
 #define AMI_OFONT_ENGINE &ofont->olf_EEngine
 #else
-#define AMI_OFONT_ENGINE ofont->GEngine
+#define AMI_BULLET_GE(ofont) ((ofont)->olf_EEngine.ege_GlyphEngine)
 #endif
 
 void ami_font_scan_init(const char *filename, bool force_scan, bool save,

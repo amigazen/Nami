@@ -282,7 +282,7 @@ static css_error nscss_process_css_data(struct content_css_data *c,
  * \param c  Content to convert
  * \return true on success, false on failure
  */
-bool nscss_convert(struct content *c)
+static bool nscss_convert(struct content *c)
 {
 	nscss_content *css = (nscss_content *) c;
 	css_error error;
@@ -340,7 +340,7 @@ static css_error nscss_convert_css_data(struct content_css_data *c)
  *
  * \param c  Content to clean up
  */
-void nscss_destroy(struct content *c)
+static void nscss_destroy(struct content *c)
 {
 	nscss_content *css = (nscss_content *) c;
 
@@ -373,7 +373,7 @@ static void nscss_destroy_css_data(struct content_css_data *c)
 	free(c->charset);
 }
 
-nserror nscss_clone(const struct content *old, struct content **newc)
+static nserror nscss_clone(const struct content *old, struct content **newc)
 {
 	const nscss_content *old_css = (const nscss_content *) old;
 	nscss_content *new_css;
@@ -426,7 +426,7 @@ nserror nscss_clone(const struct content *old, struct content **newc)
 	return NSERROR_OK;
 }
 
-bool nscss_matches_quirks(const struct content *c, bool quirks)
+static bool nscss_matches_quirks(const struct content *c, bool quirks)
 {
 	return c->quirks == quirks;
 }
@@ -459,7 +459,7 @@ struct nscss_import *nscss_get_imports(hlcache_handle *h, uint32_t *n)
  *
  * \return CONTENT_CSS
  */
-content_type nscss_content_type(void)
+static content_type nscss_content_type(void)
 {
 	return CONTENT_CSS;
 }
@@ -474,7 +474,7 @@ content_type nscss_content_type(void)
  * \param css  CSS object
  * \param pw   Private data
  */
-void nscss_content_done(struct content_css_data *css, void *pw)
+static void nscss_content_done(struct content_css_data *css, void *pw)
 {
 	struct content *c = pw;
 	uint32_t i;
@@ -519,7 +519,7 @@ void nscss_content_done(struct content_css_data *css, void *pw)
  * \param url     URL of the imported sheet
  * \return CSS_OK on success, appropriate error otherwise
  */
-css_error nscss_handle_import(void *pw, css_stylesheet *parent,
+static css_error nscss_handle_import(void *pw, css_stylesheet *parent,
 		lwc_string *url)
 {
 	content_type accept = CONTENT_CSS;
@@ -621,7 +621,7 @@ css_error nscss_handle_import(void *pw, css_stylesheet *parent,
  * \param pw      Callback context
  * \return NSERROR_OK on success, appropriate error otherwise
  */
-nserror nscss_import(hlcache_handle *handle,
+static nserror nscss_import(hlcache_handle *handle,
 		const hlcache_event *event, void *pw)
 {
 	nscss_import_ctx *ctx = pw;
@@ -659,7 +659,7 @@ nserror nscss_import(hlcache_handle *handle,
  * \param ctx  Import context
  * \return CSS_OK on success, appropriate error otherwise
  */
-css_error nscss_import_complete(nscss_import_ctx *ctx)
+static css_error nscss_import_complete(nscss_import_ctx *ctx)
 {
 	css_error error = CSS_OK;
 
@@ -688,7 +688,7 @@ css_error nscss_import_complete(nscss_import_ctx *ctx)
  * \param c  CSS object containing the imports
  * \return CSS_OK on success, appropriate error otherwise
  */
-css_error nscss_register_imports(struct content_css_data *c)
+static css_error nscss_register_imports(struct content_css_data *c)
 {
 	uint32_t index;
 	css_error error;
@@ -732,7 +732,7 @@ css_error nscss_register_imports(struct content_css_data *c)
  * \param import  Cache handle of import, or NULL for blank
  * \return CSS_OK on success, appropriate error otherwise
  */
-css_error nscss_register_import(struct content_css_data *c,
+static css_error nscss_register_import(struct content_css_data *c,
 		const hlcache_handle *import)
 {
 	css_stylesheet *sheet;

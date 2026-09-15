@@ -3,41 +3,52 @@
  *
  * This file is part of NetSurf, http://www.netsurf-browser.org/
  *
- * NetSurf is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * NetSurf is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-/** \file
- * Abstract RTG functions for newer/older/non-P96 systems
+ * Abstract RTG helpers using cybergraphics.library (chunky Write/ReadPixelArray)
+ * and graphics.library AllocBitMap/FreeBitMap.
  */
 
 #include "amiga/rtg.h"
 
+#include <proto/cybergraphics.h>
+#include <cybergraphx/cybergraphics.h>
+
+extern struct Library *CyberGfxBase;
+
 struct BitMap *ami_rtg_allocbitmap(ULONG width, ULONG height, ULONG depth,
-	ULONG flags, struct BitMap *friend, RGBFTYPE format)
+	ULONG flags, struct BitMap *friendbm, ULONG format)
 {
-	if(P96Base == NULL) {
-		return AllocBitMap(width, height, depth, flags, friend);
-	} else {
-		return p96AllocBitMap(width, height, depth, flags, friend, format);
+	ULONG bmflags;
+
+	bmflags = flags | BMF_MINPLANES;
+	/*
+	 * BMF_SPECIALFMT + PIXFMT needs cybergraphics.library. Without it,
+	 * AllocBitMap can hang or return unusable bitmaps on classic OS3.
+	 */
+	if (format != 0 && CyberGfxBase != NULL) {
+		bmflags |= BMF_SPECIALFMT | SHIFT_PIXFMT(format);
 	}
+
+	/*
+	 * Palette / AGA: guigfx DrawPicture needs a BMF_STANDARD planar
+	 * BitMap. BMF_MINPLANES alone yields a non-standard map; guigfx then
+	 * picks WritePixelArray and crashes when CyberGFX is absent.
+	 */
+	if (depth <= 8UL && CyberGfxBase == NULL) {
+		bmflags = (flags | BMF_STANDARD | BMF_CLEAR) & ~BMF_MINPLANES;
+		/* Friend of an RTG map can still force non-standard; prefer none. */
+		if (friendbm != NULL &&
+		    (GetBitMapAttr(friendbm, BMA_FLAGS) & BMF_STANDARD) == 0) {
+			friendbm = NULL;
+		}
+	}
+
+	return AllocBitMap(width, height, depth, bmflags, friendbm);
 }
 
 void ami_rtg_freebitmap(struct BitMap *bm)
 {
-	if(P96Base == NULL) {
-		return FreeBitMap(bm);
-	} else {
-		return p96FreeBitMap(bm);
+	if (bm != NULL) {
+		FreeBitMap(bm);
 	}
 }
 
@@ -46,25 +57,15 @@ void ami_rtg_writepixelarray(UBYTE *pixdata, struct BitMap *bm,
 {
 	struct RastPort trp;
 
+	if (pixdata == NULL || bm == NULL || CyberGfxBase == NULL) {
+		return;
+	}
+
 	InitRastPort(&trp);
 	trp.BitMap = bm;
 
-	/* This requires P96 or gfx.lib v54 currently */
-	if(P96Base == NULL) {
-#ifdef __amigaos4__
-		if(GfxBase->LibNode.lib_Version >= 54) {
-			WritePixelArray(pixdata, 0, 0, bpr, PIXF_A8R8G8B8, &trp, 0, 0, width, height);
-		}
-#endif
-	} else {
-		struct RenderInfo ri;
-
-		ri.Memory = pixdata;
-		ri.BytesPerRow = bpr;
-		ri.RGBFormat = format;
-
-		p96WritePixelArray((struct RenderInfo *)&ri, 0, 0, &trp, 0, 0, width, height);
-	}
+	/* format is RECTFMT_* for CyberGFX PixelArray calls */
+	WritePixelArray(pixdata, 0, 0, bpr, &trp, 0, 0, width, height, format);
 }
 
 void ami_rtg_readpixelarray(struct BitMap *bm, UBYTE **pixdata,
@@ -72,24 +73,13 @@ void ami_rtg_readpixelarray(struct BitMap *bm, UBYTE **pixdata,
 {
 	struct RastPort trp;
 
+	if (pixdata == NULL || *pixdata == NULL || bm == NULL ||
+	    CyberGfxBase == NULL) {
+		return;
+	}
+
 	InitRastPort(&trp);
 	trp.BitMap = bm;
 
-	/* This requires P96 or gfx.lib v54 currently */
-	if(P96Base == NULL) {
-#ifdef __amigaos4__
-		if(GfxBase->LibNode.lib_Version >= 54) {
-			ReadPixelArray(&trp, 0, 0, *pixdata, 0, 0, bpr, PIXF_A8R8G8B8, width, height);
-		}
-#endif
-	} else {
-		struct RenderInfo ri;
-
-		ri.Memory = *pixdata;
-		ri.BytesPerRow = bpr;
-		ri.RGBFormat = format;
-
-		p96ReadPixelArray((struct RenderInfo *)&ri, 0, 0, &trp, 0, 0, width, height);
-	}
+	ReadPixelArray(*pixdata, 0, 0, bpr, &trp, 0, 0, width, height, format);
 }
-

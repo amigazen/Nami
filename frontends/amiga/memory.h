@@ -19,6 +19,7 @@
 #ifndef AMIGA_MEMORY_H
 #define AMIGA_MEMORY_H
 
+#include <stddef.h>
 #include <exec/types.h>
 
 /* Alloc/free chip memory */
@@ -36,10 +37,10 @@
 #define ami_memory_clear_free(p) FreeVec(p)
 #else
 void *ami_memory_clear_alloc(size_t size, UBYTE value);
-#define ami_memory_clear_free(p) free(p)
+void ami_memory_clear_free(void *p);
 #endif
 
-/* Itempool cross-compatibility */
+/* Fixed-size item pools: OS4 ItemPool, OS3 Exec CreatePool */
 #ifdef __amigaos4__
 #define ami_memory_itempool_create(s) AllocSysObjectTags(ASOT_ITEMPOOL, \
 		ASOITEM_MFlags, MEMF_PRIVATE, \
@@ -51,18 +52,17 @@ void *ami_memory_clear_alloc(size_t size, UBYTE value);
 #define ami_memory_itempool_alloc(p,s) ItemPoolAlloc(p)
 #define ami_memory_itempool_free(p,i,s) ItemPoolFree(p,i)
 #else
-#define ami_memory_itempool_create(s) ((APTR)1)
-#define ami_memory_itempool_delete(p) ((void)0)
-#define ami_memory_itempool_alloc(p,s) malloc(s)
-#define ami_memory_itempool_free(p,i,s) free(i)
+APTR ami_memory_itempool_create(ULONG item_size);
+void ami_memory_itempool_delete(APTR pool);
+APTR ami_memory_itempool_alloc(APTR pool, ULONG size);
+void ami_memory_itempool_free(APTR pool, APTR item, ULONG size);
 #endif
 
-/* clib2 slab allocator */
 #ifndef __amigaos4__
 void ami_memory_slab_dump(BPTR fh);
 struct Interrupt *ami_memory_init(void);
 void ami_memory_fini(struct Interrupt *memhandler);
+void ami_memory_poll(void);
 #endif
 
-#endif //AMIGA_MEMORY_H
-
+#endif /* AMIGA_MEMORY_H */

@@ -1,5 +1,6 @@
 /*
  * Copyright 2008 - 2016 Chris Young <chris@unsatisfactorysoftware.co.uk>
+ * Copyright 2026 amigazen project
  *
  * This file is part of NetSurf, http://www.netsurf-browser.org/
  *
@@ -18,10 +19,12 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "amiga/os3support.h"
 
 #include <proto/diskfont.h>
+#include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
 
@@ -34,9 +37,12 @@
 #include "amiga/font_bullet.h"
 #include "amiga/font_diskfont.h"
 #include "amiga/font_scan.h"
+#include "amiga/font_ttengine.h"
 
 static ULONG ami_devicedpi = 72;
 static ULONG ami_xdpi = 72;
+/** Engine that ami_font_init() actually started (for matching fini). */
+static int ami_font_active_engine = AMI_FONTENG_BULLET;
 
 struct ami_font_functions *ami_nsfont = NULL;
 
@@ -108,45 +114,168 @@ void ami_font_close_disk_font(struct TextFont *tfont)
 	CloseFont(tfont);
 }
 
+/**
+ * Resolve AUTO / explicit engine choice to a concrete backend.
+ */
+static int
+ami_font_resolve_engine(void)
+{
+	int eng;
+
+	eng = nsoption_int(font_engine);
+
+	if (eng == AMI_FONTENG_TTENGINE) {
+		if (ami_font_ttengine_available()) {
+			return AMI_FONTENG_TTENGINE;
+		}
+		NSLOG(netsurf, INFO,
+		      "ttengine requested but unavailable; falling back");
+		eng = AMI_FONTENG_AUTO;
+	}
+
+	if (eng == AMI_FONTENG_BULLET || eng == AMI_FONTENG_DISKFONT) {
+		return eng;
+	}
+
+	/* AUTO: prefer ttengine when present, else legacy bitmap_fonts flag. */
+	if (ami_font_ttengine_available()) {
+		return AMI_FONTENG_TTENGINE;
+	}
+
+	if (nsoption_bool(bitmap_fonts)) {
+		return AMI_FONTENG_DISKFONT;
+	}
+
+	return AMI_FONTENG_BULLET;
+}
+
+/**
+ * First FONTS: name.otag that exists, else first candidate (for nsoption).
+ */
+static const char *
+ami_font_first_otag(const char **names)
+{
+	BPTR lock;
+	char path[108];
+	int i;
+
+	if (names == NULL || names[0] == NULL) {
+		return NULL;
+	}
+
+	for (i = 0; names[i] != NULL; i++) {
+		path[0] = '\0';
+		strncat(path, "FONTS:", sizeof(path) - 1);
+		strncat(path, names[i], sizeof(path) - 1 - strlen(path));
+		strncat(path, ".otag", sizeof(path) - 1 - strlen(path));
+		lock = Lock(path, ACCESS_READ);
+		if (lock != 0) {
+			UnLock(lock);
+			NSLOG(netsurf, INFO, "CG font pick: %s", names[i]);
+			return names[i];
+		}
+	}
+	return names[0];
+}
+
+static void
+ami_font_init_bullet_defaults(void)
+{
+#ifdef __amigaos4__
+	nsoption_setnull_charp(font_sans, (char *)strdup("DejaVu Sans"));
+	nsoption_setnull_charp(font_serif, (char *)strdup("DejaVu Serif"));
+	nsoption_setnull_charp(font_mono, (char *)strdup("DejaVu Sans Mono"));
+	nsoption_setnull_charp(font_cursive, (char *)strdup("DejaVu Sans"));
+	nsoption_setnull_charp(font_fantasy, (char *)strdup("DejaVu Serif"));
+#else
+	/* Stock OS3 Compugraphic / Intellifont faces, with common aliases. */
+	static const char *sans_cands[] = {
+		"CGTriumvirate", "Triumvirate", NULL
+	};
+	static const char *serif_cands[] = {
+		"CGTimes", "Times", NULL
+	};
+	static const char *mono_cands[] = {
+		"Courier", "LetterGothic", NULL
+	};
+	const char *sans;
+	const char *serif;
+	const char *mono;
+
+	sans = ami_font_first_otag(sans_cands);
+	serif = ami_font_first_otag(serif_cands);
+	mono = ami_font_first_otag(mono_cands);
+
+	/*
+	 * Always install CG faces for the bullet engine. Prefs often still
+	 * hold diskfont names (helvetica/times/topaz) from AUTO/bitmap mode;
+	 * those cannot OpenOutlineFont and produced blank pages.
+	 */
+	nsoption_set_charp(font_sans, (char *)strdup(sans));
+	nsoption_set_charp(font_serif, (char *)strdup(serif));
+	nsoption_set_charp(font_mono, (char *)strdup(mono));
+	nsoption_set_charp(font_cursive, (char *)strdup(sans));
+	nsoption_set_charp(font_fantasy, (char *)strdup(serif));
+	NSLOG(netsurf, INFO,
+	      "bullet fonts: sans=%s serif=%s mono=%s",
+	      sans, serif, mono);
+#endif
+}
+
+static void
+ami_font_init_diskfont_defaults(void)
+{
+	nsoption_setnull_charp(font_sans, (char *)strdup("helvetica"));
+	nsoption_setnull_charp(font_serif, (char *)strdup("times"));
+	nsoption_setnull_charp(font_mono, (char *)strdup("topaz"));
+	nsoption_setnull_charp(font_cursive, (char *)strdup("garnet"));
+	nsoption_setnull_charp(font_fantasy, (char *)strdup("emerald"));
+}
+
 /* Font initialisation */
 void ami_font_init(void)
 {
-	if(nsoption_bool(bitmap_fonts) == false) {
-#ifdef __amigaos4__
-		nsoption_setnull_charp(font_sans, (char *)strdup("DejaVu Sans"));
-		nsoption_setnull_charp(font_serif, (char *)strdup("DejaVu Serif"));
-		nsoption_setnull_charp(font_mono, (char *)strdup("DejaVu Sans Mono"));
-		nsoption_setnull_charp(font_cursive, (char *)strdup("DejaVu Sans"));
-		nsoption_setnull_charp(font_fantasy, (char *)strdup("DejaVu Serif"));
-#else
-		/* Default CG fonts for OS3 - these work with use_diskfont both on and off,
-		however they are slow in both cases. The bitmap fonts don't work when
-		use_diskfont is off. */
-		nsoption_setnull_charp(font_sans, (char *)strdup("CGTriumvirate"));
-		nsoption_setnull_charp(font_serif, (char *)strdup("CGTimes"));
-		nsoption_setnull_charp(font_mono, (char *)strdup("LetterGothic"));
-		nsoption_setnull_charp(font_cursive, (char *)strdup("CGTriumvirate"));
-		nsoption_setnull_charp(font_fantasy, (char *)strdup("CGTimes"));
-#endif
-		ami_font_bullet_init();
-	} else {
-		nsoption_setnull_charp(font_sans, (char *)strdup("helvetica"));
-		nsoption_setnull_charp(font_serif, (char *)strdup("times"));
-		nsoption_setnull_charp(font_mono, (char *)strdup("topaz"));
-		nsoption_setnull_charp(font_cursive, (char *)strdup("garnet"));
-		nsoption_setnull_charp(font_fantasy, (char *)strdup("emerald"));
+	int eng;
 
-		ami_font_diskfont_init();
+	eng = ami_font_resolve_engine();
+
+	if (eng == AMI_FONTENG_TTENGINE) {
+		if (ami_font_ttengine_init()) {
+			ami_font_active_engine = AMI_FONTENG_TTENGINE;
+			return;
+		}
+		eng = nsoption_bool(bitmap_fonts) ?
+			AMI_FONTENG_DISKFONT : AMI_FONTENG_BULLET;
 	}
+
+	if (eng == AMI_FONTENG_DISKFONT) {
+		ami_font_init_diskfont_defaults();
+		ami_font_diskfont_init();
+		ami_font_active_engine = AMI_FONTENG_DISKFONT;
+		return;
+	}
+
+	ami_font_init_bullet_defaults();
+	ami_font_bullet_init();
+	ami_font_active_engine = AMI_FONTENG_BULLET;
 }
 
 void ami_font_fini(void)
 {
-	if(nsoption_bool(bitmap_fonts) == false) {
-		ami_font_bullet_fini();
-	} else {
+	switch (ami_font_active_engine) {
+	case AMI_FONTENG_TTENGINE:
+		ami_font_ttengine_fini();
+		break;
+	case AMI_FONTENG_DISKFONT:
 		ami_font_diskfont_fini();
+		break;
+	case AMI_FONTENG_BULLET:
+	default:
+		ami_font_bullet_fini();
+		break;
 	}
+
+	ami_nsfont = NULL;
 }
 
 /* Stub entry points */

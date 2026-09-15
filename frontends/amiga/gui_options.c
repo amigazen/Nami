@@ -72,6 +72,7 @@
 #include "amiga/file.h"
 #include "amiga/font.h"
 #include "amiga/font_bullet.h"
+#include "amiga/font_ttengine.h"
 #include "amiga/gui.h"
 #include "amiga/gui_menu.h"
 #include "amiga/gui_options.h"
@@ -268,7 +269,7 @@ static struct TextAttr default_cg_font_FANTASY = { "DejaVu Serif.font",     0, 0
 #else
 static struct TextAttr default_cg_font_SANS =    { "CGTriumvirate.font", 0, 0, 0 };
 static struct TextAttr default_cg_font_SERIF =   { "CGTimes.font",       0, 0, 0 };
-static struct TextAttr default_cg_font_MONO =    { "LetterGothic.font",  0, 0, 0 };
+static struct TextAttr default_cg_font_MONO =    { "Courier.font",       0, 0, 0 };
 static struct TextAttr default_cg_font_CURSIVE = { "CGTriumvirate.font", 0, 0, 0 };
 static struct TextAttr default_cg_font_FANTASY = { "CGTimes.font",       0, 0, 0 };
 #endif
@@ -296,7 +297,7 @@ static CONST_STRPTR proxyopts[OPTS_MAX_PROXY];
 static CONST_STRPTR nativebmopts[OPTS_MAX_NATIVEBM];
 static CONST_STRPTR ditheropts[OPTS_MAX_DITHER];
 static CONST_STRPTR fontopts[6];
-static CONST_STRPTR fontengines[3];
+static CONST_STRPTR fontengines[5];
 static CONST_STRPTR gadlab[OPTS_LAST];
 static CONST_STRPTR helphints[OPTS_LAST];
 static struct List *websearch_list;
@@ -418,9 +419,11 @@ static void ami_gui_opts_setup(struct ami_gui_opts_window *gow)
 	ditheropts[2] = (char *)ami_utf8_easy((char *)messages_get("High"));
 	ditheropts[3] = NULL;
 
-	fontengines[0] = (char *)ami_utf8_easy((char *)messages_get("FontEngineBullet"));
-	fontengines[1] = (char *)ami_utf8_easy((char *)messages_get("FontEngineDiskfont"));
-	fontengines[2] = NULL;
+	fontengines[0] = (char *)ami_utf8_easy((char *)"Auto");
+	fontengines[1] = (char *)ami_utf8_easy((char *)messages_get("FontEngineBullet"));
+	fontengines[2] = (char *)ami_utf8_easy((char *)messages_get("FontEngineDiskfont"));
+	fontengines[3] = (char *)ami_utf8_easy((char *)"TTEngine");
+	fontengines[4] = NULL;
 	
 	gow->websearch_idx = 0;
 	websearch_list = ami_gui_opts_websearch(&gow->websearch_idx);
@@ -696,7 +699,15 @@ void ami_gui_opts_open(void)
 		tab_always_show_disabled = TRUE;
 	}
 
-	BOOL outline_fonts = !nsoption_bool(bitmap_fonts);
+	BOOL outline_fonts;
+
+	outline_fonts = TRUE;
+	if (nsoption_int(font_engine) == AMI_FONTENG_DISKFONT ||
+	    (nsoption_int(font_engine) == AMI_FONTENG_AUTO &&
+	     nsoption_bool(bitmap_fonts) &&
+	     !ami_font_ttengine_available())) {
+		outline_fonts = FALSE;
+	}
 
 	fontsans.ta_Name = ASPrintf("%s.font", nsoption_charp(font_sans));
 	fontserif.ta_Name = ASPrintf("%s.font", nsoption_charp(font_serif));
@@ -1344,7 +1355,7 @@ void ami_gui_opts_open(void)
 #else
 											CHOOSER_Labels, &gow->fontenginelist,
 #endif
-											CHOOSER_Selected, nsoption_bool(bitmap_fonts),
+											CHOOSER_Selected, nsoption_int(font_engine),
 										ChooserEnd,
 										CHILD_Label, LabelObj,
 											LABEL_Text, gadlab[GID_OPTS_FONT_BITMAP],
@@ -1996,9 +2007,11 @@ static void ami_gui_opts_use(bool save)
 	GetAttr(CHOOSER_Selected, gow->objects[GID_OPTS_FONT_BITMAP], (ULONG *)&data);
 	ami_font_fini();
 
-	if(data) {
+	nsoption_set_int(font_engine, (int)data);
+	/* Keep legacy bitmap_fonts in sync for older code paths. */
+	if ((int)data == AMI_FONTENG_DISKFONT) {
 		nsoption_set_bool(bitmap_fonts, true);
-	} else { 
+	} else {
 		nsoption_set_bool(bitmap_fonts, false);
 	}
 	ami_font_init();
@@ -2373,7 +2386,7 @@ static BOOL ami_gui_opts_event(void *w)
 
 					case GID_OPTS_FONT_BITMAP:
 						GetAttr(CHOOSER_Selected,gow->objects[GID_OPTS_FONT_BITMAP],(ULONG *)&data);
-						if(data) {
+						if((int)data == AMI_FONTENG_DISKFONT) {
 							ami_gui_opts_set_default_fonts(gow, FALSE);
 						} else {
 							ami_gui_opts_set_default_fonts(gow, TRUE);

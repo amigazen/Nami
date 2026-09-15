@@ -39,17 +39,25 @@ static nserror ami_utf8_codesets(const char *string, size_t len, char **result, 
 	static struct codeset *utf8_cs = NULL;
 	static struct codeset *local_cs = NULL;
 
-	if(local_cs == NULL) local_cs = CodesetsFind(NULL,
+	if(local_cs == NULL) {
 #ifdef __amigaos4__
-						CSA_MIBenum, nsoption_int(local_codeset),
-#else
-						NULL,
-#endif
+		local_cs = CodesetsFind(NULL,
+					CSA_MIBenum, nsoption_int(local_codeset),
 					TAG_DONE);
+#else
+		/* Prefer system default codeset on OS3 */
+		local_cs = CodesetsFindBest(TAG_DONE);
+#endif
+	}
 
-     if(utf8_cs == NULL) utf8_cs = CodesetsFind(NULL,
-                           CSA_MIBenum, CS_MIBENUM_UTF_8,
-                           TAG_DONE);
+	if(utf8_cs == NULL) {
+		utf8_cs = CodesetsFind("UTF-8", TAG_DONE);
+		if(utf8_cs == NULL) {
+			utf8_cs = CodesetsFind(NULL,
+					       CSA_MIBenum, CS_MIBENUM_UTF_8,
+					       TAG_DONE);
+		}
+	}
 
 	if(to_local == false) {
 		local_tag = CSA_SourceCodeset;
@@ -60,9 +68,7 @@ static nserror ami_utf8_codesets(const char *string, size_t len, char **result, 
 
 	out = CodesetsConvertStr(CSA_Source, string,
 						len_tag, len,
-#ifdef __amigaos4__
 						local_tag, local_cs,
-#endif
 						utf8_tag, utf8_cs,
 						CSA_MapForeignChars, TRUE,
 						TAG_DONE);

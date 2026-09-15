@@ -18,164 +18,266 @@
  */
 
 /** \file
- * Minimal compatibility header for AmigaOS 3
+ * Minimal AmigaOS 3 compatibility for APIs NetSurf still uses that are
+ * OS4-only or absent from NDK 3.2. Prefer NDK3.2R4 headers for everything
+ * else (ShowWindow, ESetInfo, OutlineFont, SaveDTObjectA, ReAction tags, …).
  */
 
 #ifndef AMIGA_OS3SUPPORT_H_
 #define AMIGA_OS3SUPPORT_H_
 
+#include "amiga/vbcc_defs.h"
+
 #ifndef __amigaos4__
 
 #include <stdint.h>
 #include <dirent.h>
+#include <string.h>
+
+#include <clib/compiler-specific.h>
 
 #include <proto/exec.h>
 #include <proto/dos.h>
 
-/* Include prototypes for amigalib */
 #include <clib/alib_protos.h>
 
 #ifndef EXEC_MEMORY_H
 #include <exec/memory.h>
 #endif
 
-/* C macros */
-#ifndef ASM
-#define ASM
-#endif
+#include <devices/timer.h>
+#include <graphics/gfx.h>
+#include <intuition/classusr.h> /* Object */
 
+/* Registerised calls: use NDK clib/compiler-specific.h (__reg for vbcc) */
+#ifndef ASM
+#define ASM __ASM__
+#endif
 #ifndef REG
-#define REG(reg,arg) arg __asm(#reg)
+#ifdef __VBCC__
+#define REG(reg,arg) __reg(#reg) arg
+#else
+#define REG(reg,arg) __REG__(reg, arg)
+#endif
 #endif
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
-/* Macros */
+/* vbcc has no GCC __builtin_expect */
+#ifndef __builtin_expect
+#define __builtin_expect(expr, value) (expr)
+#endif
+
+/*
+ * NDK timeval uses tv_secs/tv_micro. Map POSIX names for frontend call sites.
+ * Must come after any <time.h>/<dirent.h> include above so PosixLib's
+ * struct timespec { time_t tv_sec; } is not rewritten during its parse.
+ * PosixLib <sys/time.h> does the same when TIMERNAME is already set.
+ */
+#ifndef tv_sec
+#define tv_sec tv_secs
+#endif
+#ifndef tv_usec
+#define tv_usec tv_micro
+#endif
+
 #define IsMinListEmpty(L) (L)->mlh_Head->mln_Succ == 0
 #define LIB_IS_AT_LEAST(B,V,R) ((B)->lib_Version>(V)) || \
 	((B)->lib_Version==(V) && (B)->lib_Revision>=(R))
 #define EAD_IS_FILE(E) ((E)->ed_Type<0)
 
-/* Define extra memory type flags */
+#ifndef MEMF_PRIVATE
 #define MEMF_PRIVATE	MEMF_ANY
+#endif
+#ifndef MEMF_SHARED
 #define MEMF_SHARED	MEMF_ANY
+#endif
 
-/* Ignore unsupported tags */
-#define ASO_NoTrack				TAG_IGNORE
-#define BITMAP_DisabledSourceFile	TAG_IGNORE
-#define BITMAP_HasAlpha			TAG_IGNORE
+/*
+ * Tag / constant fallbacks — only for symbols NDK3.2R4 does not define.
+ * Do not stub names that exist in NDK (e.g. TNA_CloseGadget, ShowWindow):
+ * #ifndef on a function name is always true and a later #define breaks protos.
+ */
+#ifndef ASO_NoTrack
+#define ASO_NoTrack			TAG_IGNORE
+#endif
+#ifndef BLITA_UseSrcAlpha
 #define BLITA_UseSrcAlpha		TAG_IGNORE
+#endif
+#ifndef BLITA_MaskPlane
 #define BLITA_MaskPlane			TAG_IGNORE
-#define CLICKTAB_CloseImage		TAG_IGNORE
-#define CLICKTAB_FlagImage		TAG_IGNORE
-#define CLICKTAB_LabelTruncate	TAG_IGNORE
-#define CLICKTAB_NodeClosed		TAG_IGNORE
-#define GETFONT_OTagOnly		TAG_IGNORE
-#define GETFONT_ScalableOnly	TAG_IGNORE
-#define PDTA_PromoteMask	TAG_IGNORE
-#define RPTAG_APenColor		TAG_IGNORE
-#define GA_ContextMenu		TAG_IGNORE
+#endif
+#ifndef PDTA_PromoteMask
+#define PDTA_PromoteMask		TAG_IGNORE
+#endif
+#ifndef RPTAG_APenColor
+#define RPTAG_APenColor			TAG_IGNORE
+#endif
+#ifndef GA_ContextMenu
+#define GA_ContextMenu			TAG_IGNORE
+#endif
+#ifndef GA_HintInfo
 #define GA_HintInfo			TAG_IGNORE
-#define GAUGEIA_Level		TAG_IGNORE
+#endif
+#ifndef GAUGEIA_Level
+#define GAUGEIA_Level			TAG_IGNORE
+#endif
+#ifndef IA_InBorder
 #define IA_InBorder			TAG_IGNORE
-#define IA_Label			TAG_IGNORE
-#define LBNCA_SoftStyle		TAG_IGNORE
-#define LISTBROWSER_Striping	TAG_IGNORE
-#define SA_Compositing		TAG_IGNORE
-#define SBNA_Text			TAG_IGNORE
-#define SBNA_HintInfo		TAG_IGNORE
-#define TNA_CloseGadget		TAG_IGNORE
-#define TNA_HintInfo		TAG_IGNORE
+#endif
+#ifndef SA_Compositing
+#define SA_Compositing			TAG_IGNORE
+#endif
+#ifndef WA_ContextMenuHook
 #define WA_ContextMenuHook		TAG_IGNORE
+#endif
+#ifndef WA_ToolBox
 #define WA_ToolBox			TAG_IGNORE
-#define WINDOW_BuiltInScroll	TAG_IGNORE
-#define WINDOW_NewMenu		TAG_IGNORE
-#define WINDOW_NewPrefsHook	TAG_IGNORE
+#endif
 
 /* raw keycodes */
+#ifndef RAWKEY_BACKSPACE
 #define RAWKEY_BACKSPACE	0x41
+#endif
+#ifndef RAWKEY_TAB
 #define RAWKEY_TAB	0x42
+#endif
+#ifndef RAWKEY_ESC
 #define RAWKEY_ESC	0x45
+#endif
+#ifndef RAWKEY_DEL
 #define RAWKEY_DEL	0x46
+#endif
+#ifndef RAWKEY_PAGEUP
 #define RAWKEY_PAGEUP	0x48
+#endif
+#ifndef RAWKEY_PAGEDOWN
 #define RAWKEY_PAGEDOWN	0x49
+#endif
+#ifndef RAWKEY_CRSRUP
 #define RAWKEY_CRSRUP	0x4C
+#endif
+#ifndef RAWKEY_CRSRDOWN
 #define RAWKEY_CRSRDOWN	0x4D
+#endif
+#ifndef RAWKEY_CRSRRIGHT
 #define RAWKEY_CRSRRIGHT	0x4E
+#endif
+#ifndef RAWKEY_CRSRLEFT
 #define RAWKEY_CRSRLEFT	0x4F
+#endif
+#ifndef RAWKEY_F5
 #define RAWKEY_F5	0x54
+#endif
+#ifndef RAWKEY_F8
 #define RAWKEY_F8	0x57
+#endif
+#ifndef RAWKEY_F9
 #define RAWKEY_F9	0x58
+#endif
+#ifndef RAWKEY_F10
 #define RAWKEY_F10	0x59
-#define RAWKEY_F12  0x6F
+#endif
+#ifndef RAWKEY_F12
+#define RAWKEY_F12	0x6F
+#endif
+#ifndef RAWKEY_HELP
 #define RAWKEY_HELP	0x5F
+#endif
+#ifndef RAWKEY_HOME
 #define RAWKEY_HOME	0x70
+#endif
+#ifndef RAWKEY_END
 #define RAWKEY_END	0x71
+#endif
 
-/* New pens - these may not be equivalent */
+#ifndef DISABLEDTEXTPEN
 #define DISABLEDTEXTPEN HIGHLIGHTTEXTPEN
+#endif
+#ifndef TITLEPEN
 #define TITLEPEN FILLPEN
+#endif
 
-/* Other constants */
-#define BVS_DISPLAY BVS_NONE
-#define IDCMP_EXTENDEDMOUSE 0
-#define WINDOW_BACKMOST 0
+#ifndef DN_FULLPATH
 #define DN_FULLPATH 0
+#endif
+#ifndef BGBACKFILL
 #define BGBACKFILL JAM1
-#define OFF_OPEN 0
-#define AFF_OTAG 0
+#endif
+#ifndef ML_SEPARATOR
 #define ML_SEPARATOR NM_BARLABEL
-#define LBS_ROWS 0
+#endif
+/* LBS_ROWS is defined by NDK gadgets/listbrowser.h — do not stub it */
 
-/* Renamed structures */
+/* BVS_DISPLAY is defined by NDK images/bevel.h — do not stub it */
+
+#ifndef AnchorPathOld
 #define AnchorPathOld AnchorPath
+#endif
 
-/* ReAction (ClassAct) macros */
+#ifndef GetFileEnd
 #define GetFileEnd End
+#endif
+#ifndef GetFontEnd
 #define GetFontEnd End
+#endif
+#ifndef GetScreenModeEnd
 #define GetScreenModeEnd End
+#endif
 
-/* MinTerm stuff */
+#ifndef MINTERM_SRCMASK
 #define MINTERM_SRCMASK (ABC|ABNC|ANBC)
+#endif
 
-/* Easy compat macros */
-/* application */
+/* application.library (OS4) */
+#ifndef Notify
 #define Notify(...) (void)0
+#endif
 
-/* DataTypes */
-#define SaveDTObjectA(O,W,R,F,M,I,A) DoDTMethod(O,W,R,DTM_WRITE,F,M,NULL)
-
-/* diskfont */
-#define EReleaseInfo ReleaseInfo
-#define EObtainInfo ObtainInfo
-#define ESetInfo SetInfo
-
-/* Only used in one place we haven't ifdeffed, where it returns the charset name */
-#define ObtainCharsetInfo(A,B,C) (const char *)nsoption_charp(local_charset)
-
-/* DOS */
-#define AllocSysObjectTags(A,B,C,D) CreateMsgPort() /* Assume ASOT_PORT for now */
+/* DOS OS4 helpers */
+#ifndef AllocSysObjectTags
+#define AllocSysObjectTags(A,B,C,D) CreateMsgPort()
+#endif
+#ifndef FOpen
 #define FOpen(A,B,C) Open(A,B)
+#endif
+#ifndef FClose
 #define FClose(A) Close(A)
-#define CreateDirTree(D) CreateDir(D) /*\todo This isn't quite right */
+#endif
+#ifndef CreateDirTree
+#define CreateDirTree(D) CreateDir(D)
+#endif
+#ifndef SetCurrentDir
 #define SetCurrentDir(L) CurrentDir(L)
+#endif
+#ifndef DevNameFromLock
 #define DevNameFromLock(A,B,C,D) NameFromLock(A,B,C)
+#endif
 
 /* Exec */
+#ifndef FindIName
 #define FindIName FindName
+#endif
 
-/* Intuition */
+/* OS4 I* Method naming → classic alib DoMethod* (NDK has DoMethod, not IDoMethod) */
+#ifndef ICoerceMethod
 #define ICoerceMethod CoerceMethod
+#endif
+#ifndef IDoMethod
 #define IDoMethod DoMethod
+#endif
+#ifndef IDoMethodA
 #define IDoMethodA DoMethodA
+#endif
+#ifndef IDoSuperMethodA
 #define IDoSuperMethodA DoSuperMethodA
-#define ShowWindow(...) (void)0
+#endif
 
 /* Utility */
+#ifndef SetMem
 #define SetMem memset
-#define SNPrintf snprintf
+#endif
 
-/* Integral type definitions */
 typedef int8_t int8;
 typedef uint8_t uint8;
 typedef int16_t int16;
@@ -185,83 +287,65 @@ typedef uint32_t uint32;
 typedef int64_t int64;
 typedef uint64_t uint64;
 
-/* TimeVal */
-struct TimeVal {
-	uint32 Seconds;
-	uint32 Microseconds;
-};
-
-/* TimeRequest */
-struct TimeRequest {
-	struct IORequest Request;
-	struct TimeVal Time;
-};
-
-/* OutlineFont */
-struct OutlineFont {
-	struct BulletBase *BulletBase;
-	struct GlyphEngine *GEngine;
-	STRPTR OTagPath;
-	struct TagItem *olf_OTagList;
-};
-
-/* BackFillMessage */
+/* BackFillMessage — Rectangle from graphics/gfx.h */
 struct BackFillMessage {
-    struct Layer *Layer;
-    struct Rectangle Bounds;
-    LONG OffsetX;
-    LONG OffsetY;
+	struct Layer *Layer;
+	struct Rectangle Bounds;
+	LONG OffsetX;
+	LONG OffsetY;
 };
 
-/* icon.library v51 (ie. AfA_OS version) */
-#define ICONCTRLA_SetImageDataFormat        (ICONA_Dummy + 0x67) /*103*/
-#define ICONCTRLA_GetImageDataFormat        (ICONA_Dummy + 0x68) /*104*/
+/* icon.library v51 (AfA_OS) */
+#ifndef ICONCTRLA_SetImageDataFormat
+#define ICONCTRLA_SetImageDataFormat	(ICONA_Dummy + 0x67)
+#endif
+#ifndef ICONCTRLA_GetImageDataFormat
+#define ICONCTRLA_GetImageDataFormat	(ICONA_Dummy + 0x68)
+#endif
+#ifndef IDFMT_BITMAPPED
+#define IDFMT_BITMAPPED		(0)
+#endif
+#ifndef IDFMT_PALETTEMAPPED
+#define IDFMT_PALETTEMAPPED	(1)
+#endif
+#ifndef IDFMT_DIRECTMAPPED
+#define IDFMT_DIRECTMAPPED	(2)
+#endif
 
-#define IDFMT_BITMAPPED     (0)  /* Bitmapped icon (planar, legacy) */
-#define IDFMT_PALETTEMAPPED (1)  /* Palette mapped icon (chunky, V44+) */
-#define IDFMT_DIRECTMAPPED  (2)  /* Direct mapped icon (truecolor 0xAARRGGBB, V51+) */ 
-
-/* Object types */
 enum {
 	ASOT_PORT = 1,
 	ASOT_IOREQUEST
 };
 
-/* Requester types */
 enum {
 	TDRIMAGE_ERROR = 1,
 	TDRIMAGE_WARNING
 };
 
-/* Functions */
-/* Diskfont */
-void CloseOutlineFont(struct OutlineFont *of, struct List *list);
-struct OutlineFont *OpenOutlineFont(STRPTR fileName, struct List *list, ULONG flags);
-
-/* DOS */
+/* Provided by os3support.c — not in NDK 3.2 */
 int64 GetFileSize(BPTR fh);
 void FreeSysObject(ULONG type, APTR obj);
 
-/* Exec */
 struct Node *GetHead(struct List *list);
 struct Node *GetPred(struct Node *node);
 struct Node *GetSucc(struct Node *node);
 
-/* Intuition */
 uint32 GetAttrs(Object *obj, Tag tag1, ...);
 ULONG RefreshSetGadgetAttrs(struct Gadget *g, struct Window *w, struct Requester *r, Tag tag1, ...);
 ULONG RefreshSetGadgetAttrsA(struct Gadget *g, struct Window *w, struct Requester *r, struct TagItem *tags);
-APTR NewObject(struct IClass * classPtr, CONST_STRPTR classID, ULONG tagList, ...);
 
-/* Utility */
 char *ASPrintf(const char *fmt, ...);
-
-/* C */
 char *strlwr(char *str);
-int alphasort(const struct dirent **d1, const struct dirent **d2);
-int scandir(const char *dir, struct dirent ***namelist,
-  int (*filter)(const struct dirent *),
-  int (*compar)(const struct dirent **, const struct dirent **));
-#endif
-#endif
 
+/* PosixLib exposes __socket_select; NetSurf calls waitselect() */
+int waitselect(int nfds, void *readfds, void *writefds, void *exceptfds,
+	void *timeout, unsigned long *sigmask);
+
+struct utsname;
+int uname(struct utsname *buf);
+
+/* Softfloat/PosixLib may declare this; provide if the libc lacks it */
+float ceilf(float x);
+
+#endif /* !__amigaos4__ */
+#endif /* AMIGA_OS3SUPPORT_H_ */

@@ -119,7 +119,7 @@ static bool haru_nsfont_init(HPDF_Doc *pdf, HPDF_Page *page,
  * \param  width   updated to width of string[0..length]
  * \return  true on success, false on error and error reported
  */
-bool haru_nsfont_width(const plot_font_style_t *fstyle,
+static bool haru_nsfont_width(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 	 	int *width)
 {
@@ -169,7 +169,7 @@ bool haru_nsfont_width(const plot_font_style_t *fstyle,
  * \return  true on success, false on error and error reported
  */
 
-bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
+static bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 		int x, size_t *char_offset, int *actual_x)
 {
@@ -230,7 +230,7 @@ bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
  * \return  true on success, false on error and error reported
  */
 
-bool haru_nsfont_split(const plot_font_style_t *fstyle,
+static bool haru_nsfont_split(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 		int x, size_t *char_offset, int *actual_x)
 {

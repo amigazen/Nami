@@ -41,6 +41,7 @@
 #include "utils/utils.h"
 #include "utils/ring.h"
 #include "utils/messages.h"
+#include "utils/log.h"
 
 #include "content/fetch.h"
 #include "content/fetchers.h"
@@ -653,6 +654,10 @@ fetch_about_setup(struct fetch *fetchh,
 	ctx->multipart = post_multipart;
 
 	RING_INSERT(ring, ctx);
+
+	NSLOG(netsurf, INFO, "about setup %s handler=%s",
+	      nsurl_access(url),
+	      ctx->handler != NULL ? "yes" : "NULL(404)");
 
 	return ctx;
 }

@@ -1,0 +1,118 @@
+#
+# VMakefile — vbcc AmigaOS3 NetSurf
+#
+# Builds objects and links them. Amiga vc does not support @response files
+# (reports "No match for @…"), so flags are on the command line.
+#
+# Sibling netsurf libs (css.lib, etc.) are copied into build/vbcc-os3/lib
+# before linking so -L points at a local ready-to-link set.
+#
+#   make -f VMakefile
+#   make -f VMakefile clean
+#
+
+# Must be the first target (before include), otherwise make defaults to the
+# first rule in vobjects.mak and only builds content_content.o.
+all: NetSurf
+
+LIBDIR = build/vbcc-os3/lib
+
+VCFLAGS = +aos68k_posix -c99 -Dnsamiga -D__AMIGA__ -D_AMIGA -DPATH_MAX=1024 -cpu=68020 -DNDEBUG \
+	-DWITH_HUBBUB -DWITH_AMIGA_ICON -DWITH_AMIGA_DATATYPES -DWITH_AMIHTTP \
+	-DNETSURF_LOG_LEVEL=INFO \
+	-Ifrontends/amiga/include \
+	-Ifrontends/amiga/regex \
+	-I. -Iinclude -Ifrontends -Ifrontends/amiga -Ifrontends/amiga/iconv \
+	-Icontent/handlers \
+	-Ivbcc-include \
+	-I../libnsutils/include \
+	-I../libwapcaplet/include \
+	-I../libparserutils/include \
+	-I../libhubbub/include \
+	-I../libdom/include \
+	-I../libcss/include \
+	-I../z.library/Source/lib_source/zlib \
+	-I../z.library/SDK/Include_H \
+	-I../libcodesets/developer/include \
+	-I../AmiHTTP/SDK/Include_H \
+	-I../ttengine.library/SDK/Include_H \
+	-I../guigfxlib/include \
+	-I../renderlib/include \
+	-I../libopenurl/developer/C/include \
+	-I../CGraphX/C/Include \
+	-ISDK:Include_h \
+	-Ivbcc:ns-vbcc/include \
+	-INDK:Include/include_h
+
+# Local staged .lib in $(LIBDIR). Do not use -lauto (PosixLib SocketBase clash).
+# +aos68k_posix already adds -lposix -lvc -lamiga and math.
+# zlib: SAS/C zlib.lib/zlibstubs.lib use @-symbols — not linkable with vbcc.
+# Compile z.library stubs + gz helpers as objects instead (needs LIBS:z.library).
+VLDFLAGS = -L$(LIBDIR) \
+	-lcss -ldom -lhubbub -lparserutils -lwapcaplet -lnsutils
+
+include frontends/amiga/vobjects.mak
+
+# vbcc-built z.library glue (inflate* via LVOs) + gz* for Messages files
+# Sources live under frontends/amiga/ — Amiga make does not resolve ../ sibling paths.
+ZOBJS = \
+	build/vbcc-os3/frontends_amiga_z_stubs.o \
+	build/vbcc-os3/frontends_amiga_z_autoinit.o \
+	build/vbcc-os3/frontends_amiga_zlib_gzio.o
+
+# Static Henry Spencer POSIX regex (no regex.library)
+ROBJS = \
+	build/vbcc-os3/frontends_amiga_regex_regcomp.o \
+	build/vbcc-os3/frontends_amiga_regex_regexec.o \
+	build/vbcc-os3/frontends_amiga_regex_regerror.o \
+	build/vbcc-os3/frontends_amiga_regex_regfree.o
+
+build/vbcc-os3/stamp:
+	-MakeDir build
+	-MakeDir build/vbcc-os3
+	Echo ok >build/vbcc-os3/stamp
+
+$(LIBDIR)/stamp: build/vbcc-os3/stamp
+	-MakeDir $(LIBDIR)
+	Echo ok >$(LIBDIR)/stamp
+
+# Stage sibling vbcc libraries into build/vbcc-os3/lib for the link step
+stage-libs: $(LIBDIR)/stamp
+	Copy /libcss/css.lib $(LIBDIR)/css.lib
+	Copy /libdom/dom.lib $(LIBDIR)/dom.lib
+	Copy /libhubbub/hubbub.lib $(LIBDIR)/hubbub.lib
+	Copy /libparserutils/parserutils.lib $(LIBDIR)/parserutils.lib
+	Copy /libwapcaplet/wapcaplet.lib $(LIBDIR)/wapcaplet.lib
+	Copy /libnsutils/nsutils.lib $(LIBDIR)/nsutils.lib
+
+$(OBJS): build/vbcc-os3/stamp
+$(ZOBJS): build/vbcc-os3/stamp
+$(ROBJS): build/vbcc-os3/stamp
+
+build/vbcc-os3/frontends_amiga_z_stubs.o: frontends/amiga/z_stubs.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_z_stubs.o frontends/amiga/z_stubs.c
+
+build/vbcc-os3/frontends_amiga_z_autoinit.o: frontends/amiga/z_autoinit.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_z_autoinit.o frontends/amiga/z_autoinit.c
+
+build/vbcc-os3/frontends_amiga_zlib_gzio.o: frontends/amiga/zlib_gzio.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_zlib_gzio.o frontends/amiga/zlib_gzio.c
+
+build/vbcc-os3/frontends_amiga_regex_regcomp.o: frontends/amiga/regex/regcomp.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_regex_regcomp.o frontends/amiga/regex/regcomp.c
+
+build/vbcc-os3/frontends_amiga_regex_regexec.o: frontends/amiga/regex/regexec.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_regex_regexec.o frontends/amiga/regex/regexec.c
+
+build/vbcc-os3/frontends_amiga_regex_regerror.o: frontends/amiga/regex/regerror.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_regex_regerror.o frontends/amiga/regex/regerror.c
+
+build/vbcc-os3/frontends_amiga_regex_regfree.o: frontends/amiga/regex/regfree.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_regex_regfree.o frontends/amiga/regex/regfree.c
+
+NetSurf: $(OBJS) $(ZOBJS) $(ROBJS) stage-libs
+	vc +aos68k_posix -o NetSurf $(OBJS) $(ZOBJS) $(ROBJS) $(VLDFLAGS)
+
+clean:
+	-Delete quiet force all build/vbcc-os3
+	-Delete quiet NetSurf

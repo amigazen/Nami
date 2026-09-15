@@ -3,39 +3,28 @@
  *
  * This file is part of NetSurf, http://www.netsurf-browser.org/
  *
- * NetSurf is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * NetSurf is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-/** \file
- * Abstract RTG functions for newer/older/non-P96 systems
+ * Abstract RTG helpers for cybergraphics.library / graphics.library.
  */
 
 #ifndef AMIGA_RTG_H
 #define AMIGA_RTG_H 1
-#include <proto/graphics.h>
-#include <proto/Picasso96API.h>
 
-/* Wrappers for Alloc/FreeBitMap */
+#include <proto/graphics.h>
+#include <cybergraphx/cybergraphics.h>
+
+/* AllocBitMap PIXFMT for 32-bit ARGB friend/special bitmaps */
+#define AMI_RTG_PIXFMT_ARGB32	PIXFMT_ARGB32
+/* WritePixelArray / ReadPixelArray source/dest format */
+#define AMI_RTG_RECTFMT_ARGB	RECTFMT_ARGB
+
 struct BitMap *ami_rtg_allocbitmap(ULONG width, ULONG height, ULONG depth,
-	ULONG flags, struct BitMap *friend, RGBFTYPE format);
+	ULONG flags, struct BitMap *friendbm, ULONG format);
 void ami_rtg_freebitmap(struct BitMap *bm);
 
-/* WritePixelArray wrapper */
 void ami_rtg_writepixelarray(UBYTE *pixdata, struct BitMap *bm,
 	ULONG width, ULONG height, ULONG bpr, ULONG format);
 
-/* ReadPixelArray wrapper */
 void ami_rtg_readpixelarray(struct BitMap *bm, UBYTE **pixdata,
 	ULONG width, ULONG height, ULONG bpr, ULONG format);
-#endif
 
+#endif

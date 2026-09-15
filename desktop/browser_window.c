@@ -1391,6 +1391,12 @@ browser_window__handle_error(struct browser_window *bw,
 		message = messages_get(message);
 	}
 
+	NSLOG(netsurf, WARNING,
+	      "fetcherror url=%s reason=%s code=%d",
+	      nsurl_access(url),
+	      message != NULL ? message : "(null)",
+	      (int)code);
+
 	if (c == bw->loading_content) {
 		bw->loading_content = NULL;
 	} else if (c == bw->current_content) {
@@ -3786,7 +3792,7 @@ navigate_internal_query_fetcherror(struct browser_window *bw,
  * If we're not, then we just move on to the real navigate.
  */
 nserror
-browser_window__navigate_internal(struct browser_window *bw,
+static browser_window__navigate_internal(struct browser_window *bw,
 				  struct browser_fetch_parameters *params)
 {
 	lwc_string *scheme, *path;

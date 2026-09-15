@@ -48,11 +48,17 @@
 #include <proto/layout.h>
 #include <proto/listbrowser.h>
 #include <proto/radiobutton.h>
+#include <proto/requester.h>
 #include <proto/scroller.h>
 #include <proto/space.h>
 #include <proto/speedbar.h>
 #include <proto/string.h>
+#include <proto/texteditor.h>
+#include <proto/virtual.h>
 #include <proto/window.h>
+/* listview.gadget has inline GetClass but no proto/ wrapper in NDK3.2 */
+#include <intuition/classes.h>
+#include <inline/listview_protos.h>
 #endif
 
 #ifdef __amigaos4__
@@ -117,9 +123,27 @@
 	I##PREFIX = NULL;	\
 	PREFIX##Base = NULL;
 
+/* Optional class: no interface, non-fatal if missing (prefs/chrome). */
+#define AMINS_CLASS_OPEN_OPT(CLASS, CLASSVER, PREFIX, CLASSGET)	\
+	NSLOG(netsurf, INFO, "Opening %s v%d (optional)", CLASS, CLASSVER);		\
+	if((PREFIX##Base = OpenClass(CLASS, CLASSVER, &PREFIX##Class))) {	\
+		NSLOG(netsurf, INFO, " -> opened v%d.%d", ((struct Library *)PREFIX##Base)->lib_Version, ((struct Library *)PREFIX##Base)->lib_Revision);	\
+	} else {	\
+		NSLOG(netsurf, INFO, "Failed to open %s v%d (optional)", CLASS, CLASSVER); \
+	}
+
+#define AMINS_CLASS_CLOSE_OPT(PREFIX)	\
+	if(PREFIX##Base) CloseClass(PREFIX##Base);	\
+	PREFIX##Base = NULL;	\
+	PREFIX##Class = NULL;
+
 #define AMINS_CLASS_STRUCT(PREFIX)	\
 	struct ClassLibrary *PREFIX##Base = NULL;	\
 	struct PREFIX##IFace *I##PREFIX = NULL;	\
+	Class *PREFIX##Class = NULL;
+
+#define AMINS_CLASS_STRUCT_OPT(PREFIX)	\
+	struct ClassLibrary *PREFIX##Base = NULL;	\
 	Class *PREFIX##Class = NULL;
 
 #else
@@ -162,7 +186,27 @@
 	if(PREFIX##Base) CloseLibrary(PREFIX##Base);	\
 	PREFIX##Base = NULL;
 
+#define AMINS_CLASS_OPEN_OPT(CLASS, CLASSVER, PREFIX, CLASSGET)	\
+	NSLOG(netsurf, INFO, "Opening %s v%d (optional)", CLASS, CLASSVER);	\
+	if((PREFIX##Base = OpenLibrary(CLASS, CLASSVER))) {	\
+		NSLOG(netsurf, INFO, " -> opened v%d.%d", ((struct Library *)PREFIX##Base)->lib_Version, ((struct Library *)PREFIX##Base)->lib_Revision);	\
+		PREFIX##Class = CLASSGET##_GetClass();	\
+	}	\
+	if(PREFIX##Class == NULL) {	\
+		NSLOG(netsurf, INFO, "Failed to open %s v%d (optional)", CLASS, CLASSVER); \
+		if(PREFIX##Base) { CloseLibrary(PREFIX##Base); PREFIX##Base = NULL; }	\
+	}
+
+#define AMINS_CLASS_CLOSE_OPT(PREFIX)	\
+	if(PREFIX##Base) CloseLibrary(PREFIX##Base);	\
+	PREFIX##Base = NULL;	\
+	PREFIX##Class = NULL;
+
 #define AMINS_CLASS_STRUCT(PREFIX)	\
+	struct Library *PREFIX##Base = NULL;	\
+	Class *PREFIX##Class = NULL;
+
+#define AMINS_CLASS_STRUCT_OPT(PREFIX)	\
 	struct Library *PREFIX##Base = NULL;	\
 	Class *PREFIX##Class = NULL;
 
@@ -173,7 +217,7 @@
 #ifdef __amigaos4__
 AMINS_LIB_STRUCT(Application);
 #else
-AMINS_LIB_STRUCT(Utility)
+	AMINS_LIB_STRUCT(Utility);
 #endif
 AMINS_LIB_STRUCT(Asl);
 AMINS_LIB_STRUCT(DataTypes);
@@ -186,11 +230,15 @@ AMINS_LIB_STRUCT(Intuition);
 AMINS_LIB_STRUCT(Keymap);
 AMINS_LIB_STRUCT(Layers);
 AMINS_LIB_STRUCT(Locale);
-AMINS_LIB_STRUCT(P96);
 AMINS_LIB_STRUCT(Workbench);
 
 AMINS_LIB_STRUCT(Codesets);
 AMINS_LIB_STRUCT(GuiGFX);
+/* proto/cybergraphics.h and proto/ttengine.h expect Library * bases */
+struct Library *CyberGfxBase = NULL;
+struct Library *TTEngineBase = NULL;
+/* proto/bullet.h — direct GlyphEngine SetInfo/ObtainInfo (BulletExamples) */
+struct Library *BulletBase = NULL;
 
 AMINS_CLASS_STRUCT(ARexx);
 AMINS_CLASS_STRUCT(Bevel);
@@ -207,7 +255,9 @@ AMINS_CLASS_STRUCT(Integer);
 AMINS_CLASS_STRUCT(Label);
 AMINS_CLASS_STRUCT(Layout);
 AMINS_CLASS_STRUCT(ListBrowser);
+AMINS_CLASS_STRUCT_OPT(ListView);
 AMINS_CLASS_STRUCT(RadioButton);
+AMINS_CLASS_STRUCT_OPT(Requester);
 #ifndef __amigaos4__
 AMINS_CLASS_STRUCT(Page);
 #endif
@@ -215,7 +265,13 @@ AMINS_CLASS_STRUCT(Scroller);
 AMINS_CLASS_STRUCT(Space);
 AMINS_CLASS_STRUCT(SpeedBar);
 AMINS_CLASS_STRUCT(String);
+AMINS_CLASS_STRUCT_OPT(Tabs);
+AMINS_CLASS_STRUCT_OPT(Virtual);
 AMINS_CLASS_STRUCT(Window);
+
+/* texteditor.gadget: NDK base name is TextFieldBase, not TextEditorBase */
+struct Library *TextFieldBase = NULL;
+Class *TextEditorClass = NULL;
 
 
 bool ami_libs_open(void)
@@ -242,15 +298,38 @@ bool ami_libs_open(void)
 	AMINS_LIB_OPEN("locale.library",       38, Locale,      "main",        1, true)
 	AMINS_LIB_OPEN("workbench.library",    37, Workbench,   "main",        1, true)
 
-	/* This is down here as we need to check the graphics.library version
-	 * before opening.  If it is sufficiently new enough we can avoid using P96.
-	 */
-	if(GfxBase->LibNode.lib_Version < 54)
-		AMINS_LIB_OPEN("Picasso96API.library",  0, P96,         "main",        1, false)
+	/* cybergraphics.library for chunky Write/ReadPixelArray on OS3 RTG */
+	NSLOG(netsurf, INFO, "Opening cybergraphics.library v41");
+	CyberGfxBase = OpenLibrary("cybergraphics.library", 41);
+	if (CyberGfxBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      CyberGfxBase->lib_Version, CyberGfxBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open cybergraphics.library v41 (optional)");
+	}
+
+	/* bullet.library for direct GlyphEngine calls (see BulletExamples) */
+	NSLOG(netsurf, INFO, "Opening bullet.library");
+	BulletBase = OpenLibrary("bullet.library", 0);
+	if (BulletBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      BulletBase->lib_Version, BulletBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open bullet.library (optional; OutlineFont may still open it)");
+	}
 
 	/* Non-OS provided libraries */
 	AMINS_LIB_OPEN("codesets.library",    6, Codesets,   "main",        1, false)
 	AMINS_LIB_OPEN("guigfx.library",      9, GuiGFX,     "main",        1, false)
+	/* POSIX regex is statically linked (frontends/amiga/regex/) — no regex.library */
+	NSLOG(netsurf, INFO, "Opening ttengine.library v6");
+	TTEngineBase = OpenLibrary("ttengine.library", 6);
+	if (TTEngineBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      TTEngineBase->lib_Version, TTEngineBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open ttengine.library v6 (optional)");
+	}
 
 	/* NB: timer.device is opened in schedule.c (ultimately by the scheduler process).
 	 * The library base and interface are obtained there, rather than here, due to
@@ -290,6 +369,53 @@ bool ami_libs_open(void)
 	AMINS_CLASS_OPEN("gadgets/string.gadget",        41, String,        STRING,        false)
 	AMINS_CLASS_OPEN("window.class",                 42, Window,        WINDOW,        false)
 
+	/* Optional ReAction classes for prefs/chrome UI (not HTML form controls). */
+	AMINS_CLASS_OPEN_OPT("requester.class",            41, Requester,     REQUESTER)
+	AMINS_CLASS_OPEN_OPT("gadgets/listview.gadget",    40, ListView,      LISTVIEW)
+	AMINS_CLASS_OPEN_OPT("gadgets/virtual.gadget",     41, Virtual,       VIRTUAL)
+#ifdef __amigaos4__
+	AMINS_CLASS_OPEN_OPT("gadgets/tabs.gadget",        47, Tabs,          TABS)
+#else
+	/* tabs.gadget has no GetClass() in NDK3.2 — open the library so the
+	 * public class name works with NewObject(NULL, "gadgets/tabs.gadget").
+	 */
+	NSLOG(netsurf, INFO, "Opening gadgets/tabs.gadget v47 (optional)");
+	TabsBase = OpenLibrary("gadgets/tabs.gadget", 47);
+	if (TabsBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      TabsBase->lib_Version, TabsBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open gadgets/tabs.gadget v47 (optional)");
+	}
+#endif
+
+	NSLOG(netsurf, INFO, "Opening gadgets/texteditor.gadget v41 (optional)");
+#ifdef __amigaos4__
+	TextFieldBase = (struct Library *)OpenClass("gadgets/texteditor.gadget", 41,
+						    &TextEditorClass);
+	if (TextFieldBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      TextFieldBase->lib_Version, TextFieldBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open gadgets/texteditor.gadget v41 (optional)");
+	}
+#else
+	TextFieldBase = OpenLibrary("gadgets/texteditor.gadget", 41);
+	if (TextFieldBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      TextFieldBase->lib_Version, TextFieldBase->lib_Revision);
+		TextEditorClass = TEXTEDITOR_GetClass();
+		if (TextEditorClass == NULL) {
+			CloseLibrary(TextFieldBase);
+			TextFieldBase = NULL;
+			NSLOG(netsurf, INFO,
+			      "Failed to get texteditor class (optional)");
+		}
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open gadgets/texteditor.gadget v41 (optional)");
+	}
+#endif
+
 #ifndef __amigaos4__
 	/* BOOPSI classes only required prior to OS4 */
 	PageClass = PAGE_GetClass();
@@ -318,16 +444,44 @@ void ami_libs_close(void)
 	AMINS_CLASS_CLOSE(Label)
 	AMINS_CLASS_CLOSE(Layout)
 	AMINS_CLASS_CLOSE(ListBrowser)
+	AMINS_CLASS_CLOSE_OPT(ListView)
 	AMINS_CLASS_CLOSE(RadioButton)
+	AMINS_CLASS_CLOSE_OPT(Requester)
 	AMINS_CLASS_CLOSE(Scroller)
 	AMINS_CLASS_CLOSE(Space)
 	AMINS_CLASS_CLOSE(SpeedBar)
 	AMINS_CLASS_CLOSE(String)
+	AMINS_CLASS_CLOSE_OPT(Tabs)
+	AMINS_CLASS_CLOSE_OPT(Virtual)
 	AMINS_CLASS_CLOSE(Window)
+
+#ifdef __amigaos4__
+	if (TextFieldBase != NULL) {
+		CloseClass((struct ClassLibrary *)TextFieldBase);
+	}
+#else
+	if (TextFieldBase != NULL) {
+		CloseLibrary(TextFieldBase);
+	}
+#endif
+	TextFieldBase = NULL;
+	TextEditorClass = NULL;
 
 	/* Libraries */
 	AMINS_LIB_CLOSE(Codesets)
 	AMINS_LIB_CLOSE(GuiGFX)
+	if (TTEngineBase != NULL) {
+		CloseLibrary(TTEngineBase);
+		TTEngineBase = NULL;
+	}
+	if (CyberGfxBase != NULL) {
+		CloseLibrary(CyberGfxBase);
+		CyberGfxBase = NULL;
+	}
+	if (BulletBase != NULL) {
+		CloseLibrary(BulletBase);
+		BulletBase = NULL;
+	}
 
 	AMINS_LIB_CLOSE(Asl)
 	AMINS_LIB_CLOSE(DataTypes)
@@ -340,7 +494,6 @@ void ami_libs_close(void)
 	AMINS_LIB_CLOSE(Keymap)
 	AMINS_LIB_CLOSE(Layers)
 	AMINS_LIB_CLOSE(Locale)
-	AMINS_LIB_CLOSE(P96)
 	AMINS_LIB_CLOSE(Workbench)
 #ifdef __amigaos4__
 	AMINS_LIB_CLOSE(Application)

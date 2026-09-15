@@ -711,7 +711,7 @@ RXHOOKF(rx_slabstats)
 #ifndef __amigaos4__
 	BPTR fh = 0;
 
-	if(cmd->ac_ArgList[0] != NULL) {
+	if(cmd->ac_ArgList[0] != 0) {
 		fh = Open((char *)cmd->ac_ArgList[0], MODE_NEWFILE);
 	}
 	ami_memory_slab_dump(fh);

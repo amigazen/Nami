@@ -23,7 +23,6 @@
 #include <proto/iffparse.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
-#include <proto/Picasso96API.h>
 #include <devices/printer.h>
 #include <devices/prtbase.h>
 

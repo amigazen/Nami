@@ -21,6 +21,7 @@
  */
 
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -28,6 +29,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "utils/config.h"
 #include "utils/messages.h"
 #include "utils/dirent.h"
 #include "utils/inet.h"
@@ -211,14 +213,9 @@ char *human_friendly_bytesize(unsigned long long int bsize) {
 	static char buffer2[BYTESIZE_BUFFER_SIZE];
 	static char buffer3[BYTESIZE_BUFFER_SIZE];
 	static char *curbuffer = buffer3;
-	enum {
-	      bytes,
-	      kilobytes,
-	      megabytes,
-	      gibibytes,
-	      tebibytes,
-	      pebibytes,
-	      exbibytes	} unit = bytes;
+	unsigned unit = 0;
+	unsigned long long scaled;
+	unsigned long long rem;
 	static const char *const units[] = {
 		"Bytes",
 		"KiBytes",
@@ -227,8 +224,9 @@ char *human_friendly_bytesize(unsigned long long int bsize) {
 		"TiBytes",
 		"PiBytes",
 		"EiBytes" };
-	double bytesize = (double)bsize;
-	const char *fmt;
+
+	scaled = bsize;
+	rem = 0;
 
 	if (curbuffer == buffer1)
 		curbuffer = buffer2;
@@ -237,47 +235,30 @@ char *human_friendly_bytesize(unsigned long long int bsize) {
 	else
 		curbuffer = buffer1;
 
-	if (bytesize > 1024) {
-		bytesize /= 1024;
-		unit = kilobytes;
+	/* Integer scaling — avoid %f (softfloat printf often leaves ".1fs" litter) */
+	while (scaled >= 1024ULL && unit < 6) {
+		rem = scaled % 1024ULL;
+		scaled /= 1024ULL;
+		unit++;
 	}
 
-	if (bytesize > 1024) {
-		bytesize /= 1024;
-		unit = megabytes;
-	}
-
-	if (bytesize > 1024) {
-		bytesize /= 1024;
-		unit = gibibytes;
-	}
-
-	if (bytesize > 1024) {
-		bytesize /= 1024;
-		unit = tebibytes;
-	}
-
-	if (bytesize > 1024) {
-		bytesize /= 1024;
-		unit = pebibytes;
-	}
-
-	if (bytesize > 1024) {
-		bytesize /= 1024;
-		unit = exbibytes;
-	}
-
-	if (unit == bytes) {
-		fmt = "%.0f%s";
+	if (unit == 0) {
+		snprintf(curbuffer,
+			 BYTESIZE_BUFFER_SIZE,
+			 "%lu%s",
+			 (unsigned long)scaled,
+			 messages_get(units[unit]));
 	} else {
-		fmt = "%3.2f%s";
-	}
+		unsigned long frac;
 
-	snprintf(curbuffer,
-		 BYTESIZE_BUFFER_SIZE,
-		 fmt,
-		 bytesize,
-		 messages_get(units[unit]));
+		frac = (unsigned long)((rem * 100ULL) / 1024ULL);
+		snprintf(curbuffer,
+			 BYTESIZE_BUFFER_SIZE,
+			 "%lu.%02lu%s",
+			 (unsigned long)scaled,
+			 frac,
+			 messages_get(units[unit]));
+	}
 
 	return curbuffer;
 }
@@ -456,6 +437,8 @@ char *strchrnul (const char *s, int c_in)
 
 #include "utils/utsname.h"
 
+/* AmigaOS3 provides uname() in frontends/amiga/os3support.c */
+#if !defined(__AMIGA__) || defined(__amigaos4__)
 int uname(struct utsname *buf) {
 	strcpy(buf->sysname,"windows");
 	strcpy(buf->nodename,"nodename");
@@ -465,6 +448,7 @@ int uname(struct utsname *buf) {
 
 	return 0;
 }
+#endif
 
 #endif
 

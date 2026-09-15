@@ -179,8 +179,9 @@ static void content_update_status(struct content *c)
 			 c->sub_status);
 	} else {
 		snprintf(c->status_message, sizeof (c->status_message),
-			 "%s (%.1fs)", messages_get("Done"),
-			 (float) c->time / 1000);
+			 "%s (%lu.%lus)", messages_get("Done"),
+			 (unsigned long)(c->time / 1000),
+			 (unsigned long)((c->time / 100) % 10));
 	}
 }
 
@@ -1367,8 +1368,7 @@ struct content *content_clone(struct content *c)
 		return NULL;
 
 	return nc;
-};
-
+}
 
 /* exported interface documented in content/protected.h */
 nserror content__clone(const struct content *c, struct content *nc)

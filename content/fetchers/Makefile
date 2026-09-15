@@ -3,6 +3,7 @@
 S_FETCHERS_YES := data.c resource.c
 S_FETCHERS_NO :=
 S_FETCHERS_$(NETSURF_USE_CURL) += curl.c
+S_FETCHERS_$(NETSURF_USE_AMIHTTP) += amihttp.c
 
 S_FETCHERS := $(addprefix fetchers/,$(S_FETCHERS_YES))
 

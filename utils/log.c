@@ -173,6 +173,7 @@ nslog_log(const char *file, const char *func, int ln, const char *format, ...)
 		va_end(ap);
 
 		fputc('\n', logfile);
+		fflush(logfile);
 	}
 }
 

@@ -370,7 +370,7 @@ css_computed_style *nscss_get_blank_style(nscss_select_ctx *ctx,
  * \return CSS_OK on success,
  *         CSS_NOMEM on memory exhaustion.
  */
-css_error node_name(void *pw, void *node, css_qname *qname)
+static css_error node_name(void *pw, void *node, css_qname *qname)
 {
 	dom_node *n = node;
 	dom_string *name;
@@ -407,7 +407,7 @@ css_error node_name(void *pw, void *node, css_qname *qname)
  *       be allocated using the same allocator as used by libcss during style
  *       selection.
  */
-css_error node_classes(void *pw, void *node,
+static css_error node_classes(void *pw, void *node,
 		lwc_string ***classes, uint32_t *n_classes)
 {
 	dom_node *n = node;
@@ -432,7 +432,7 @@ css_error node_classes(void *pw, void *node,
  * \return CSS_OK on success,
  *         CSS_NOMEM on memory exhaustion.
  */
-css_error node_id(void *pw, void *node, lwc_string **id)
+static css_error node_id(void *pw, void *node, lwc_string **id)
 {
 	dom_node *n = node;
 	dom_string *attr;
@@ -489,7 +489,7 @@ css_error named_ancestor_node(void *pw, void *node,
  *
  * \post \a parent will contain the result, or NULL if there is no match
  */
-css_error named_parent_node(void *pw, void *node,
+static css_error named_parent_node(void *pw, void *node,
 		const css_qname *qname, void **parent)
 {
 	dom_element_named_parent_node(node, qname->name,
@@ -510,7 +510,7 @@ css_error named_parent_node(void *pw, void *node,
  *
  * \post \a sibling will contain the result, or NULL if there is no match
  */
-css_error named_sibling_node(void *pw, void *node,
+static css_error named_sibling_node(void *pw, void *node,
 		const css_qname *qname, void **sibling)
 {
 	dom_node *n = node;
@@ -578,7 +578,7 @@ css_error named_sibling_node(void *pw, void *node,
  *
  * \post \a sibling will contain the result, or NULL if there is no match
  */
-css_error named_generic_sibling_node(void *pw, void *node,
+static css_error named_generic_sibling_node(void *pw, void *node,
 		const css_qname *qname, void **sibling)
 {
 	dom_node *n = node;
@@ -641,7 +641,7 @@ css_error named_generic_sibling_node(void *pw, void *node,
  *
  * \post \a parent will contain the result, or NULL if there is no match
  */
-css_error parent_node(void *pw, void *node, void **parent)
+static css_error parent_node(void *pw, void *node, void **parent)
 {
 	dom_element_parent_node(node, (struct dom_element **)parent);
 	dom_node_unref(*parent);
@@ -659,7 +659,7 @@ css_error parent_node(void *pw, void *node, void **parent)
  *
  * \post \a sibling will contain the result, or NULL if there is no match
  */
-css_error sibling_node(void *pw, void *node, void **sibling)
+static css_error sibling_node(void *pw, void *node, void **sibling)
 {
 	dom_node *n = node;
 	dom_node *prev;
@@ -715,7 +715,7 @@ css_error sibling_node(void *pw, void *node, void **sibling)
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_name(void *pw, void *node,
+static css_error node_has_name(void *pw, void *node,
 		const css_qname *qname, bool *match)
 {
 	nscss_select_ctx *ctx = pw;
@@ -750,7 +750,7 @@ css_error node_has_name(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_class(void *pw, void *node,
+static css_error node_has_class(void *pw, void *node,
 		lwc_string *name, bool *match)
 {
 	dom_node *n = node;
@@ -776,7 +776,7 @@ css_error node_has_class(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_id(void *pw, void *node,
+static css_error node_has_id(void *pw, void *node,
 		lwc_string *name, bool *match)
 {
 	dom_node *n = node;
@@ -811,7 +811,7 @@ css_error node_has_id(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_attribute(void *pw, void *node,
+static css_error node_has_attribute(void *pw, void *node,
 		const css_qname *qname, bool *match)
 {
 	dom_node *n = node;
@@ -848,7 +848,7 @@ css_error node_has_attribute(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_attribute_equal(void *pw, void *node,
+static css_error node_has_attribute_equal(void *pw, void *node,
 		const css_qname *qname, lwc_string *value,
 		bool *match)
 {
@@ -900,7 +900,7 @@ css_error node_has_attribute_equal(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_attribute_dashmatch(void *pw, void *node,
+static css_error node_has_attribute_dashmatch(void *pw, void *node,
 		const css_qname *qname, lwc_string *value,
 		bool *match)
 {
@@ -965,7 +965,7 @@ css_error node_has_attribute_dashmatch(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_attribute_includes(void *pw, void *node,
+static css_error node_has_attribute_includes(void *pw, void *node,
 		const css_qname *qname, lwc_string *value,
 		bool *match)
 {
@@ -1036,7 +1036,7 @@ css_error node_has_attribute_includes(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_attribute_prefix(void *pw, void *node,
+static css_error node_has_attribute_prefix(void *pw, void *node,
 		const css_qname *qname, lwc_string *value,
 		bool *match)
 {
@@ -1100,7 +1100,7 @@ css_error node_has_attribute_prefix(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_attribute_suffix(void *pw, void *node,
+static css_error node_has_attribute_suffix(void *pw, void *node,
 		const css_qname *qname, lwc_string *value,
 		bool *match)
 {
@@ -1168,7 +1168,7 @@ css_error node_has_attribute_suffix(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_has_attribute_substring(void *pw, void *node,
+static css_error node_has_attribute_substring(void *pw, void *node,
 		const css_qname *qname, lwc_string *value,
 		bool *match)
 {
@@ -1237,7 +1237,7 @@ css_error node_has_attribute_substring(void *pw, void *node,
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_is_root(void *pw, void *node, bool *match)
+static css_error node_is_root(void *pw, void *node, bool *match)
 {
 	dom_node *n = node;
 	dom_node *parent;
@@ -1316,7 +1316,7 @@ node_count_siblings_check(dom_node *node,
  *
  * \post \a count will contain the number of siblings
  */
-css_error node_count_siblings(void *pw, void *n, bool same_name,
+static css_error node_count_siblings(void *pw, void *n, bool same_name,
 		bool after, int32_t *count)
 {
 	int32_t cnt = 0;
@@ -1380,7 +1380,7 @@ css_error node_count_siblings(void *pw, void *n, bool same_name,
  *
  * \post \a match will contain true if the node is empty and false otherwise.
  */
-css_error node_is_empty(void *pw, void *node, bool *match)
+static css_error node_is_empty(void *pw, void *node, bool *match)
 {
 	dom_node *n = node, *next;
 	dom_exception err;
@@ -1429,7 +1429,7 @@ css_error node_is_empty(void *pw, void *node, bool *match)
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_is_link(void *pw, void *n, bool *match)
+static css_error node_is_link(void *pw, void *n, bool *match)
 {
 	dom_node *node = n;
 	dom_exception exc;
@@ -1537,7 +1537,7 @@ css_error node_is_visited(void *pw, void *node, bool *match)
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_is_hover(void *pw, void *node, bool *match)
+static css_error node_is_hover(void *pw, void *node, bool *match)
 {
 	/** \todo Support hovering */
 
@@ -1556,7 +1556,7 @@ css_error node_is_hover(void *pw, void *node, bool *match)
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_is_active(void *pw, void *node, bool *match)
+static css_error node_is_active(void *pw, void *node, bool *match)
 {
 	/** \todo Support active nodes */
 
@@ -1575,7 +1575,7 @@ css_error node_is_active(void *pw, void *node, bool *match)
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_is_focus(void *pw, void *node, bool *match)
+static css_error node_is_focus(void *pw, void *node, bool *match)
 {
 	/** \todo Support focussed nodes */
 
@@ -1594,7 +1594,7 @@ css_error node_is_focus(void *pw, void *node, bool *match)
  *
  * \post \a match with contain true if the node is enabled and false otherwise.
  */
-css_error node_is_enabled(void *pw, void *node, bool *match)
+static css_error node_is_enabled(void *pw, void *node, bool *match)
 {
 	/** \todo Support enabled nodes */
 
@@ -1613,7 +1613,7 @@ css_error node_is_enabled(void *pw, void *node, bool *match)
  *
  * \post \a match with contain true if the node is disabled and false otherwise.
  */
-css_error node_is_disabled(void *pw, void *node, bool *match)
+static css_error node_is_disabled(void *pw, void *node, bool *match)
 {
 	/** \todo Support disabled nodes */
 
@@ -1632,7 +1632,7 @@ css_error node_is_disabled(void *pw, void *node, bool *match)
  *
  * \post \a match with contain true if the node is checked and false otherwise.
  */
-css_error node_is_checked(void *pw, void *node, bool *match)
+static css_error node_is_checked(void *pw, void *node, bool *match)
 {
 	/** \todo Support checked nodes */
 
@@ -1651,7 +1651,7 @@ css_error node_is_checked(void *pw, void *node, bool *match)
  *
  * \post \a match with contain true if the node matches and false otherwise.
  */
-css_error node_is_target(void *pw, void *node, bool *match)
+static css_error node_is_target(void *pw, void *node, bool *match)
 {
 	/** \todo Support target */
 
@@ -1671,7 +1671,7 @@ css_error node_is_target(void *pw, void *node, bool *match)
  *
  * \post \a match will contain true if the node matches and false otherwise.
  */
-css_error node_is_lang(void *pw, void *node,
+static css_error node_is_lang(void *pw, void *node,
 		lwc_string *lang, bool *match)
 {
 	/** \todo Support languages */
@@ -1690,7 +1690,7 @@ css_error node_is_lang(void *pw, void *node,
  * \return CSS_OK       on success,
  *         CSS_INVALID  if the property should not have a user-agent default.
  */
-css_error ua_default_for_property(void *pw, uint32_t property, css_hint *hint)
+static css_error ua_default_for_property(void *pw, uint32_t property, css_hint *hint)
 {
 	if (property == CSS_PROP_COLOR) {
 		hint->data.color = 0xff000000;
@@ -1729,7 +1729,7 @@ css_error ua_default_for_property(void *pw, uint32_t property, css_hint *hint)
 	return CSS_OK;
 }
 
-css_error set_libcss_node_data(void *pw, void *node, void *libcss_node_data)
+static css_error set_libcss_node_data(void *pw, void *node, void *libcss_node_data)
 {
 	dom_node *n = node;
 	dom_exception err;
@@ -1749,7 +1749,7 @@ css_error set_libcss_node_data(void *pw, void *node, void *libcss_node_data)
 	return CSS_OK;
 }
 
-css_error get_libcss_node_data(void *pw, void *node, void **libcss_node_data)
+static css_error get_libcss_node_data(void *pw, void *node, void **libcss_node_data)
 {
 	dom_node *n = node;
 	dom_exception err;

@@ -12,12 +12,20 @@ endif
 
 $(eval $(call feature_enabled,AMIGA_ICON,-DWITH_AMIGA_ICON,,Amiga icon))
 $(eval $(call feature_enabled,AMIGA_DATATYPES,-DWITH_AMIGA_DATATYPES,,DataTypes))
+$(eval $(call feature_enabled,AMIHTTP,-DWITH_AMIHTTP,,amihttp.library))
 $(eval $(call feature_enabled,AMISSL,-DWITH_AMISSL -DWITH_OPENSSL -D__NO_NET_API -D__NO_NETINCLUDE_ERRNO -I$(GCCSDK_INSTALL_ENV)/netinclude,-lamisslauto,AmiSSL))
 
 CFLAGS += -I$(GCCSDK_INSTALL_ENV)/include
 CFLAGS += $(shell $(PKG_CONFIG) --cflags tre)
 
-LDFLAGS += $(shell $(PKG_CONFIG) --static --libs libcurl)
+ifeq ($(NETSURF_USE_CURL),YES)
+  LDFLAGS += $(shell $(PKG_CONFIG) --static --libs libcurl)
+endif
+ifeq ($(NETSURF_USE_AMIHTTP),YES)
+  # Headers from sibling AmiHTTP SDK (or install into GCCSDK include)
+  CFLAGS += -I../AmiHTTP/SDK/Include_H
+endif
+CFLAGS += -I../ttengine.library/SDK/Include_H
 LDFLAGS += $(shell $(PKG_CONFIG) --libs tre)
 LDFLAGS += -L$(GCCSDK_INSTALL_ENV)/lib
 
@@ -53,6 +61,7 @@ S_FRONTEND := gui.c history.c hotlist.c schedule.c file.c	\
 	stringview/stringview.c stringview/urlhistory.c rtg.c		\
 	agclass/amigaguide_class.c os3support.c font_diskfont.c		\
 	selectmenu.c hash/xxhash.c font_cache.c font_bullet.c		\
+	font_ttengine.c							\
 	nsoption.c corewindow.c gui_menu.c pageinfo.c
 
 # This is the final source build list

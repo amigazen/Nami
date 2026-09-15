@@ -176,13 +176,35 @@ struct gui_globals *ami_plot_ra_alloc(ULONG width, ULONG height, bool force32bit
 
 	if(!width) width = nsoption_int(redraw_tile_size_x);
 	if(!height) height = nsoption_int(redraw_tile_size_y);
+#ifndef __amigaos4__
+	/* Hard cap — keep chip TmpRas small (see ami_set_screen_defaults) */
+	if (width == 0 || width > 256) {
+		width = 256;
+	}
+	if (height == 0 || height > 256) {
+		height = 256;
+	}
+	if (gg->palette_mapped == true) {
+		if (width > 160) {
+			width = 160;
+		}
+		if (height > 160) {
+			height = 160;
+		}
+	}
+#endif
 	gg->width = width;
 	gg->height = height;
+
+	NSLOG(netsurf, INFO, "ami_plot_ra_alloc: %lux%lu depth=%d",
+	      (unsigned long)width, (unsigned long)height, depth);
 
 	gg->layerinfo = NewLayerInfo();
 	gg->areabuf = malloc(AREA_SIZE);
 
-	/* OS3/AGA requires this to be in chip mem.  RTG would probably rather it wasn't. */
+	/* OS3/AGA requires this to be in chip mem.  RTG would rather it wasn't. */
+	NSLOG(netsurf, INFO, "ami_plot_ra_alloc: chip TmpRas %lu bytes",
+	      (unsigned long)(width * height));
 	gg->tmprasbuf = ami_memory_chip_alloc(width * height);
 
 	if(gg->palette_mapped == true) {
@@ -197,7 +219,8 @@ struct gui_globals *ami_plot_ra_alloc(ULONG width, ULONG height, bool force32bit
 		 */
 		if((depth >= 24) && (force32bit == false)) friend = scrn->RastPort.BitMap;
 #endif
-		gg->bm = ami_rtg_allocbitmap(width, height, 32, 0, friend, RGBFB_A8R8G8B8);
+		NSLOG(netsurf, INFO, "ami_plot_ra_alloc: AllocBitMap (rtg)");
+		gg->bm = ami_rtg_allocbitmap(width, height, 32, 0, friend, AMI_BITMAP_FORMAT);
 	}
 
 	if(!gg->bm) amiga_warn_user("NoMemory","");
@@ -210,6 +233,7 @@ struct gui_globals *ami_plot_ra_alloc(ULONG width, ULONG height, bool force32bit
 
 	SetDrMd(gg->rp,BGBACKFILL);
 
+	NSLOG(netsurf, INFO, "ami_plot_ra_alloc: CreateUpfrontLayer");
 	gg->rp->Layer = CreateUpfrontLayer(gg->layerinfo,gg->rp->BitMap,0,0,
 					width-1, height-1, LAYERSIMPLE, NULL);
 
@@ -333,26 +357,42 @@ static ULONG ami_plot_obtain_pen(struct MinList *shared_pens, ULONG colr)
 {
 	struct ami_plot_pen *node;
 	struct Screen *scrn = ami_gui_get_screen();
+	ULONG r, g, b;
+	LONG pen;
 
-	LONG pen = ObtainBestPenA(scrn->ViewPort.ColorMap,
-			(colr & 0x000000ff) << 24,
-			(colr & 0x0000ff00) << 16,
-			(colr & 0x00ff0000) << 8,
-			NULL);
-	
-	if(pen == -1) NSLOG(netsurf, INFO,
-			    "WARNING: Cannot allocate pen for ABGR:%lx", colr);
+	/* NetSurf plot colours are 0xAABBGGRR (see red_from_colour). */
+	r = (ULONG)red_from_colour(colr);
+	g = (ULONG)green_from_colour(colr);
+	b = (ULONG)blue_from_colour(colr);
+
+	/* ObtainBestPen with image precision against the shared screen map */
+	pen = ObtainBestPen(scrn->ViewPort.ColorMap,
+			r << 24, g << 24, b << 24,
+			OBP_Precision, PRECISION_IMAGE,
+			OBP_FailIfBad, FALSE,
+			TAG_DONE);
+
+	if (pen == -1) {
+		NSLOG(netsurf, INFO,
+		      "WARNING: Cannot allocate pen for 0x%08lx (using pen 1)",
+		      (unsigned long)colr);
+		pen = 1;
+		return (ULONG)pen;
+	}
 
 	if((shared_pens != NULL) && (pool_pens != NULL)) {
-		if((node = (struct ami_plot_pen *)ami_memory_itempool_alloc(pool_pens, sizeof(struct ami_plot_pen)))) {
+		node = (struct ami_plot_pen *)ami_memory_itempool_alloc(
+				pool_pens, sizeof(struct ami_plot_pen));
+		if (node != NULL) {
 			node->pen = pen;
 			AddTail((struct List *)shared_pens, (struct Node *)node);
 		}
 	} else {
 		/* Immediately release the pen if we can't keep track of it. */
 		ReleasePen(scrn->ViewPort.ColorMap, pen);
+		pen = 1;
 	}
-	return pen;
+	return (ULONG)pen;
 }
 
 void ami_plot_release_pens(struct MinList *shared_pens)
@@ -519,7 +559,8 @@ ami_bitmap(struct gui_globals *glob, int x, int y, int width, int height, struct
 #else
 
 		if(tag_data && (tag == BLITA_MaskPlane)) {
-			BltMaskBitMapRastPort(tbm, 0, 0, glob->rp, x, y, width, height, minterm, tag_data);
+			BltMaskBitMapRastPort(tbm, 0, 0, glob->rp, x, y, width, height, minterm,
+				(PLANEPTR)tag_data);
 		} else {
 			BltBitMapRastPort(tbm, 0, 0, glob->rp, x, y, width, height, 0xc0);
 		}
@@ -1091,7 +1132,7 @@ ami_bitmap_tile(const struct redraw_context *ctx,
 #else
 				if(tag_data && (tag == BLITA_MaskPlane)) {
 					BltMaskBitMapRastPort(tbm, 0, 0, glob->rp, x, y,
-						width, height, minterm, tag_data);
+						width, height, minterm, (PLANEPTR)tag_data);
 				} else {
 					BltBitMapRastPort(tbm, 0, 0, glob->rp, x, y,
 						width, height, 0xc0);

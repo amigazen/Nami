@@ -1,0 +1,42 @@
++aos68k_posix
+-c99
+-Dnsamiga
+-D__AMIGA__
+-D_AMIGA
+-DPATH_MAX=1024
+-cpu=68020
+-DNDEBUG
+-DWITH_HUBBUB
+-DWITH_AMIGA_ICON
+-DWITH_AMIGA_DATATYPES
+-DWITH_AMIHTTP
+-DNETSURF_LOG_LEVEL=CRITICAL
+-DNETSURF_UA_FORMAT_STRING="Mozilla/5.0 (%s) NetSurf/%d.%d"
+-DNETSURF_HOMEPAGE="about:welcome"
+-DNETSURF_BUILTIN_LOG_FILTER="(level:WARNING || cat:jserrors)"
+-DNETSURF_BUILTIN_VERBOSE_FILTER="(level:VERBOSE || cat:jserrors)"
+-Ifrontends/amiga/include
+-I.
+-Iinclude
+-Ifrontends
+-Ifrontends/amiga
+-Ifrontends/amiga/iconv
+-Icontent/handlers
+-Ivbcc-include
+-I../libnsutils/include
+-I../libwapcaplet/include
+-I../libparserutils/include
+-I../libhubbub/include
+-I../libdom/include
+-I../libcss/include
+-I../z.library/Source/lib_source/zlib
+-I../libcodesets/developer/include
+-I../AmiHTTP/SDK/Include_H
+-I../ttengine.library/SDK/Include_H
+-I../guigfxlib/include
+-I../renderlib/include
+-I../libopenurl/developer/C/include
+-I../CGraphX/C/Include
+-Ivbcc:ns-vbcc/include
+-INDK:Include/include_h
+-IMUI:C/Include

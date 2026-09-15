@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2025 Chris Young <chris@unsatisfactorysoftware.co.uk>
+ * Copyright 2008-2026 Chris Young <chris@unsatisfactorysoftware.co.uk>
  *
  * This file is part of NetSurf, http://www.netsurf-browser.org/
  *
@@ -121,6 +121,9 @@
 #include "netsurf/keypress.h"
 #include "content/backing_store.h"
 #include "content/fetch.h"
+#ifdef WITH_AMIHTTP
+#include "content/fetchers/amihttp.h"
+#endif
 #include "desktop/browser_history.h"
 #include "desktop/hotlist.h"
 #include "desktop/version.h"
@@ -357,7 +360,7 @@ static char *users_dir = NULL;
 static char *current_user_dir;
 static char *current_user_faviconcache;
 
-static const __attribute__((used)) char *stack_cookie = "\0$STACK:196608\0";
+static const char *stack_cookie = "\0$STACK:196608\0";
 
 const char * const versvn;
 
@@ -1028,12 +1031,53 @@ STRPTR ami_gui_get_screen_title(void)
 
 static void ami_set_screen_defaults(struct Screen *screen)
 {
+#ifdef __amigaos4__
 	nsoption_default_set_int(redraw_tile_size_x, screen->Width);
 	nsoption_default_set_int(redraw_tile_size_y, screen->Height);
 
-#ifdef __amigaos4__
 	/* set system colours for amiga ui */
 	system_colours_from_pen(screen);
+#else
+	/*
+	 * OS3: do not default the off-screen plot tile to full screen size.
+	 * Full-screen chip TmpRas + BMF_SPECIALFMT bitmaps hang or exhaust
+	 * chip RAM immediately after OpenScreen (ami_plot_ra_alloc).
+	 */
+	{
+		int tx = screen->Width;
+		int ty = screen->Height;
+		/* Cap tiles: chip TmpRas is width*height bytes. On 8-bit AGA
+		 * a 512x512 tile is 256KB chip and regularly trips low-mem. */
+		if (tx > 256) {
+			tx = 256;
+		}
+		if (ty > 256) {
+			ty = 256;
+		}
+		if (screen->RastPort.BitMap != NULL &&
+		    GetBitMapAttr(screen->RastPort.BitMap, BMA_DEPTH) <= 8) {
+			if (tx > 160) {
+				tx = 160;
+			}
+			if (ty > 160) {
+				ty = 160;
+			}
+		}
+		nsoption_default_set_int(redraw_tile_size_x, tx);
+		nsoption_default_set_int(redraw_tile_size_y, ty);
+		/* Force live values on OS3 — Options may still hold a 512 chip-killer */
+		if (nsoption_int(redraw_tile_size_x) == 0 ||
+		    nsoption_int(redraw_tile_size_x) > tx) {
+			nsoption_set_int(redraw_tile_size_x, tx);
+		}
+		if (nsoption_int(redraw_tile_size_y) == 0 ||
+		    nsoption_int(redraw_tile_size_y) > ty) {
+			nsoption_set_int(redraw_tile_size_y, ty);
+		}
+		NSLOG(netsurf, INFO,
+		      "OS3 redraw tile default %dx%d (screen %dx%d)",
+		      tx, ty, screen->Width, screen->Height);
+	}
 #endif
 }
 
@@ -1088,7 +1132,18 @@ static nserror ami_set_options(struct nsoption_s *defaults)
 	nsoption_set_bool(font_antialiasing, false);
 	nsoption_set_bool(truecolour_mouse_pointers, false);
 	nsoption_set_bool(use_openurl_lib, true);
-	nsoption_set_bool(bitmap_fonts, true);
+	/*
+	 * Prefer Compugraphic outline fonts via bullet.library. Bitmap
+	 * Topaz/Helvetica look poor for web text; users can still force
+	 * diskfont via font_engine / bitmap_fonts in prefs.
+	 */
+	nsoption_set_bool(bitmap_fonts, false);
+	/*
+	 * fs_backing_store uses POSIX open/mkdir and '/' paths. On OS3 that
+	 * path crashes during hlcache init right after resource mapping.
+	 * Disable disc cache (same approach as the RISC OS frontend).
+	 */
+	nsoption_set_uint(disc_cache_size, 0);
 #endif
 
 	sprintf(temp, "%s/Cookies", current_user_dir);
@@ -1107,8 +1162,22 @@ static nserror ami_set_options(struct nsoption_s *defaults)
 	nsoption_setnull_charp(font_unicode_file,
 			       (char *)strdup(temp));
 
-	nsoption_setnull_charp(ca_bundle,
-			       (char *)strdup("PROGDIR:Resources/ca-bundle"));
+	/* AmiHTTP TLS verify: prefer shared CA bundle when present */
+	{
+		BPTR ca_lock;
+
+		ca_lock = Lock("AWeb:Certs/cacert.pem", ACCESS_READ);
+		if (ca_lock != 0) {
+			UnLock(ca_lock);
+			nsoption_setnull_charp(ca_bundle,
+					       (char *)strdup("AWeb:Certs/cacert.pem"));
+		} else {
+			nsoption_setnull_charp(ca_bundle,
+					       (char *)strdup("PROGDIR:Resources/ca-bundle"));
+		}
+		NSLOG(netsurf, INFO, "ca_bundle=%s",
+		      nsoption_charp(ca_bundle) ? nsoption_charp(ca_bundle) : "(null)");
+	}
 
 	/* Regular font defaults are set in font.c */
 
@@ -1198,79 +1267,62 @@ static void ami_openscreen(void)
 {
 	ULONG id = 0;
 	ULONG compositing;
+	const char *pub;
 
 	if (nsoption_int(screen_compositing) == -1)
 		compositing = ~0UL;
 	else compositing = nsoption_int(screen_compositing);
 
-	if (nsoption_charp(pubscreen_name) == NULL)
-	{
-		if((nsoption_charp(screen_modeid)) && 
-		   (strncmp(nsoption_charp(screen_modeid), "0x", 2) == 0))
-		{
+	pub = nsoption_charp(pubscreen_name);
+
+	/*
+	 * Own NetSurf public screen only when the user has chosen that in
+	 * prefs (pubscreen_name left empty AND a screen_modeid stored).
+	 * First run / no Choices: never ASL — use Workbench.
+	 */
+	if (pub == NULL || pub[0] == '\0') {
+		if ((nsoption_charp(screen_modeid) != NULL) &&
+		    (strncmp(nsoption_charp(screen_modeid), "0x", 2) == 0)) {
 			id = strtoul(nsoption_charp(screen_modeid), NULL, 0);
-		}
-		else
-		{
-			struct ScreenModeRequester *screenmodereq = NULL;
 
-			if((screenmodereq = AllocAslRequest(ASL_ScreenModeRequest,NULL))) {
-				if(AslRequestTags(screenmodereq,
-						ASLSM_MinDepth, 0,
-						ASLSM_MaxDepth, 32,
-						TAG_DONE))
-				{
-					char *modeid = malloc(20);
-					id = screenmodereq->sm_DisplayID;
-					sprintf(modeid, "0x%lx", id);
-					nsoption_set_charp(screen_modeid, modeid);
-					ami_nsoption_write();
+			if (screen_signal == -1) screen_signal = AllocSignal(-1);
+			NSLOG(netsurf, INFO, "Screen signal %d", screen_signal);
+			scrn = OpenScreenTags(NULL,
+						SA_DisplayID, id,
+						SA_Title, ami_gui_get_screen_title(),
+						SA_Type, PUBLICSCREEN,
+						SA_PubName, "NetSurf",
+						SA_PubSig, screen_signal,
+						SA_PubTask, FindTask(0),
+						SA_LikeWorkbench, TRUE,
+						SA_SharePens, TRUE,
+						SA_Compositing, compositing,
+						TAG_DONE);
+
+			if (scrn) {
+				PubScreenStatus(scrn, 0);
+			} else {
+				FreeSignal(screen_signal);
+				screen_signal = -1;
+
+				if ((scrn = LockPubScreen("NetSurf"))) {
+					locked_screen = TRUE;
+				} else {
+					nsoption_set_charp(pubscreen_name,
+							   strdup("Workbench"));
 				}
-				FreeAslRequest(screenmodereq);
 			}
-		}
-
-		if(screen_signal == -1) screen_signal = AllocSignal(-1);
-		NSLOG(netsurf, INFO, "Screen signal %d", screen_signal);
-		scrn = OpenScreenTags(NULL,
-					/**\todo specify screen depth */
-					SA_DisplayID, id,
-					SA_Title, ami_gui_get_screen_title(),
-					SA_Type, PUBLICSCREEN,
-					SA_PubName, "NetSurf",
-					SA_PubSig, screen_signal,
-					SA_PubTask, FindTask(0),
-					SA_LikeWorkbench, TRUE,
-					SA_Compositing, compositing,
-					TAG_DONE);
-
-		if(scrn)
-		{
-			PubScreenStatus(scrn,0);
-		}
-		else
-		{
-			FreeSignal(screen_signal);
-			screen_signal = -1;
-
-			if((scrn = LockPubScreen("NetSurf")))
-			{
-				locked_screen = TRUE;
-			}
-			else
-			{
-				nsoption_set_charp(pubscreen_name,
-						   strdup("Workbench"));
-			}
+		} else {
+			NSLOG(netsurf, INFO,
+			      "No pubscreen/mode configured — using Workbench");
+			nsoption_set_charp(pubscreen_name, strdup("Workbench"));
 		}
 	}
 
-	if (nsoption_charp(pubscreen_name) != NULL)
-	{
+	if (nsoption_charp(pubscreen_name) != NULL) {
 		scrn = LockPubScreen(nsoption_charp(pubscreen_name));
 
-		if(scrn == NULL)
-		{
+		if (scrn == NULL) {
 			scrn = LockPubScreen("Workbench");
 		}
 		locked_screen = TRUE;
@@ -1283,9 +1335,14 @@ static void ami_openscreen(void)
 
 static void ami_openscreenfirst(void)
 {
+	NSLOG(netsurf, INFO, "ami_openscreenfirst: opening screen");
 	ami_openscreen();
+	NSLOG(netsurf, INFO, "ami_openscreenfirst: screen ready, alloc plot rastport");
 	if(browserglob == NULL) browserglob = ami_plot_ra_alloc(0, 0, false, false);
+	NSLOG(netsurf, INFO, "ami_openscreenfirst: plot rastport %p, throbber setup",
+	      (void *)browserglob);
 	ami_theme_throbber_setup();
+	NSLOG(netsurf, INFO, "ami_openscreenfirst: done");
 }
 
 static char **ami_gui_commandline(int *restrict argc, char ** argv,
@@ -2535,7 +2592,8 @@ static void gui_window_set_icon(struct gui_window *g, struct hlcache_handle *ico
 #else
 			if(!amiga_bitmap_get_opaque(icon_bitmap)) {
 				BltMaskBitMapRastPort(bm, 0, 0, g->shared->win->RPort,
-							bbox->Left, bbox->Top, 16, 16, minterm, tag_data);
+							bbox->Left, bbox->Top, 16, 16, minterm,
+							(PLANEPTR)tag_data);
 			} else {
 				BltBitMapRastPort(bm, 0, 0, g->shared->win->RPort,
 							bbox->Left, bbox->Top, 16, 16, 0xc0);
@@ -3563,6 +3621,20 @@ void ami_get_msg(void)
 	if(printmsgport) printsig = 1L << printmsgport->mp_SigBit;
 	uint32 signalmask = winsignal | appsig | schedulesig | rxsig |
 				printsig | applibsig | helpsignal;
+#ifdef WITH_AMIHTTP
+	{
+		BYTE amihttp_sig;
+
+		amihttp_sig = fetch_amihttp_signal();
+		if (amihttp_sig != -1) {
+			signalmask |= (1UL << amihttp_sig);
+		}
+	}
+#endif
+
+#ifndef __amigaos4__
+	ami_memory_poll();
+#endif
 
 	if ((fetch_fdset(&read_fd_set, &write_fd_set, &except_fd_set, &max_fd) == NSERROR_OK) &&
 			(max_fd != -1)) {
@@ -4656,16 +4728,17 @@ HOOKF(void, ami_scroller_hook, Object *, object, struct IntuiMessage *)
 				break;
 			} 
 		break;
-#ifdef __amigaos4__
 		case IDCMP_EXTENDEDMOUSE:
-			if(msg->Code == IMSGCODE_INTUIWHEELDATA)
-			{
+			/* OS3.2 / V47 Intuition wheel (NDK3.2 IDCMP_EXTENDEDMOUSE) */
+			if (msg->Code == IMSGCODE_INTUIWHEELDATA) {
 				wheel = (struct IntuiWheelData *)msg->IAddress;
-
-				ami_gui_scroll_internal(gwin, wheel->WheelX * 50, wheel->WheelY * 50);
+				if (wheel != NULL) {
+					ami_gui_scroll_internal(gwin,
+							wheel->WheelX * 50,
+							wheel->WheelY * 50);
+				}
 			}
 		break;
-#endif
 		case IDCMP_SIZEVERIFY:
 		break;
 
@@ -5036,12 +5109,12 @@ gui_window_create(struct browser_window *bw,
 					BitMapEnd;
 
 
-                /* add a new tab tab */
-                g->shared->new_tab_tab = AllocClickTabNode(
-						TNA_Text, "+",
-						TNA_HintInfo, g->shared->helphints[GID_ADDTAB_HINT],
-						TAG_DONE);
-                AddTail(&g->shared->tab_list, g->shared->new_tab_tab);
+		/* add a new tab tab */
+		g->shared->new_tab_tab = AllocClickTabNode(
+				TNA_Text, "+",
+				TNA_HintInfo, g->shared->helphints[GID_ADDTAB_HINT],
+				TAG_DONE);
+		AddTail(&g->shared->tab_list, g->shared->new_tab_tab);
 
 		if(ClickTabBase->lib_Version < 53)
 		{
@@ -5522,9 +5595,9 @@ static void gui_window_destroy(struct gui_window *g)
 
 		GetAttr(CLICKTAB_CurrentNode, g->shared->objects[GID_TABS], (ULONG *)&ptab);
 
-		if(ptab == g->tab_node) {
+		if((ptab == g->tab_node) || (ptab == g->shared->new_tab_tab)) {
 			ptab = GetSucc(g->tab_node);
-			if(!ptab) ptab = GetPred(g->tab_node);
+			if((ptab == NULL) || (ptab == g->shared->new_tab_tab)) ptab = GetPred(g->tab_node);
 		}
 
 		Remove(g->tab_node);
@@ -5860,7 +5933,7 @@ static bool gui_window_get_scroll(struct gui_window *g, int *restrict sx, int *r
  * \return NSERROR_OK on success or apropriate error code.
  */
 static nserror
-gui_window_set_scroll(struct gui_window *g, const struct rect *rect)
+static gui_window_set_scroll(struct gui_window *g, const struct rect *rect)
 {
 	struct IBox *bbox;
 	int width, height;
@@ -6576,6 +6649,26 @@ int main(int argc, char** argv)
 	 */
 	nslog_init(NULL, &argc, argv);
 
+#ifndef __amigaos4__
+	/*
+	 * OS3 lockup triage: if the user did not pass -v/-V, mirror INFO
+	 * logs to PROGDIR:ns.log so Workbench launches still leave a trail.
+	 * Shell: NetSurf -v   or   NetSurf -V RAM:ns.log
+	 */
+	if (verbose_log == false) {
+		char *force_argv[4];
+		int force_argc;
+
+		/* Do not touch argv — from Workbench it is a WBStartup *, not char ** */
+		force_argv[0] = (char *)"NetSurf";
+		force_argv[1] = (char *)"-V";
+		force_argv[2] = (char *)"PROGDIR:ns.log";
+		force_argv[3] = NULL;
+		force_argc = 3;
+		nslog_init(NULL, &force_argc, force_argv);
+	}
+#endif
+
 	/* Need to do this before opening any splash windows etc... */
 	if ((ami_libs_open() == false)) {
 		return RETURN_FAIL;
@@ -6615,12 +6708,6 @@ int main(int argc, char** argv)
 	amiga_plugin_hack_init();
 #endif
 
-#ifdef WITH_AMIGA_DATATYPES
-	/* DataTypes loader needs datatypes.library v45 */
-	if(DataTypesBase->lib_Version >= 45)
-		ret = amiga_datatypes_init();
-#endif
-
 	/* user options setup */
 	ret = nsoption_init(ami_set_options, &nsoptions, &nsoptions_default);
 	if (ret != NSERROR_OK) {
@@ -6631,6 +6718,10 @@ int main(int argc, char** argv)
 		return RETURN_FAIL;
 	}
 	ami_nsoption_read();
+#ifndef __amigaos4__
+	/* User options may re-enable a POSIX disc cache — keep it off on OS3 */
+	nsoption_set_uint(disc_cache_size, 0);
+#endif
 	if(args != NULL) {
 		nsoption_commandline(&nargc, nargv, NULL);
 
@@ -6659,6 +6750,8 @@ int main(int argc, char** argv)
 	current_user_cache = ASPrintf("%s/Cache", current_user_dir);
 	if((lock = CreateDirTree(current_user_cache))) UnLock(lock);
 
+	NSLOG(netsurf, INFO, "Calling netsurf_init (cache=%s)",
+	      current_user_cache ? (char *)current_user_cache : "(null)");
 	ret = netsurf_init(current_user_cache);
 
 	if(current_user_cache != NULL) FreeVec(current_user_cache);
@@ -6672,17 +6765,40 @@ int main(int argc, char** argv)
 		ami_libs_close();
 		return RETURN_FAIL;
 	}
+	NSLOG(netsurf, INFO, "netsurf_init OK");
+
+#ifdef WITH_AMIGA_DATATYPES
+	/* Register after netsurf_init so content_factory / lwc are live.
+	 * Do not gate on datatypes.library v45 - OS3 picture.datatype works
+	 * with NewDTObject; the old gate left image MIME types unregistered.
+	 */
+	ret = amiga_datatypes_init();
+	if (ret != NSERROR_OK) {
+		NSLOG(netsurf, WARNING,
+		      "amiga_datatypes_init failed (%d) - images may not display",
+		      (int)ret);
+	}
+#endif
 
 	ret = amiga_icon_init();
+	NSLOG(netsurf, INFO, "amiga_icon_init done");
 
 	search_web_init(nsoption_charp(search_engines_file));
+	NSLOG(netsurf, INFO, "search_web_init done");
 	ami_clipboard_init();
 	ami_openurl_open();
 	ami_amiupdate(); /* set env-vars for AmiUpdate */
+	NSLOG(netsurf, INFO, "ami_font_init...");
 	ami_font_init();
+	NSLOG(netsurf, INFO, "ami_font_init done");
+	NSLOG(netsurf, INFO, "save_complete_init...");
 	save_complete_init();
+	NSLOG(netsurf, INFO, "save_complete_init done");
+	NSLOG(netsurf, INFO, "ami_theme_init...");
 	ami_theme_init();
+	NSLOG(netsurf, INFO, "ami_theme_init done");
 	ami_init_mouse_pointers();
+	NSLOG(netsurf, INFO, "mouse pointers done");
 	ami_file_req_init();
 
 	win_destroyed = false;
@@ -6693,7 +6809,9 @@ int main(int argc, char** argv)
 	urldb_load(nsoption_charp(url_file));
 	urldb_load_cookies(nsoption_charp(cookie_file));
 
+	NSLOG(netsurf, INFO, "gui_init2...");
 	gui_init2(argc, argv);
+	NSLOG(netsurf, INFO, "gui_init2 done");
 
 	ami_ctxmenu_init(); /* Requires screen pointer */
 

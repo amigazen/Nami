@@ -34,6 +34,7 @@
 
 #include "netsurf/inttypes.h"
 #include "netsurf/plot_style.h"
+#include "utils/config.h"
 #include "utils/errors.h"
 #include "utils/log.h"
 #include "utils/utils.h"

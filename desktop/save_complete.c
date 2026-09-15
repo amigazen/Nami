@@ -416,7 +416,7 @@ save_complete_save_stylesheet(save_complete_ctx *ctx, hlcache_handle *css)
 }
 
 static nserror
-save_complete_save_imported_sheets(save_complete_ctx *ctx,
+static save_complete_save_imported_sheets(save_complete_ctx *ctx,
 				   struct nscss_import *imports,
 				   uint32_t import_count)
 {
@@ -1202,7 +1202,7 @@ save_complete_save_html_document(save_complete_ctx *ctx,
  * \return  true on success, false on error and error reported
  */
 static nserror
-save_complete_save_html(save_complete_ctx *ctx,
+static save_complete_save_html(save_complete_ctx *ctx,
 			hlcache_handle *c,
 			bool index)
 {

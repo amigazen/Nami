@@ -211,7 +211,7 @@ void save_text_solve_whitespace(struct box *box, bool *first,
  * \return true iff the file writing succeeded and traversal should continue.
  */
 
-void extract_text(struct box *box, bool *first, save_text_whitespace *before,
+static void extract_text(struct box *box, bool *first, save_text_whitespace *before,
 		struct save_text_state *save)
 {
 	struct box *child;
@@ -267,7 +267,7 @@ void extract_text(struct box *box, bool *first, save_text_whitespace *before,
  * \return true iff the file writing succeeded and traversal should continue.
  */
 
-bool save_text_add_to_buffer(const char *text, size_t length, struct box *box,
+static bool save_text_add_to_buffer(const char *text, size_t length, struct box *box,
 		const char *whitespace_text, size_t whitespace_length,
 		struct save_text_state *save)
 {

@@ -24,6 +24,12 @@
 #include <graphics/rastport.h>
 #include <graphics/text.h>
 
+/* Values for nsoption font_engine */
+#define AMI_FONTENG_AUTO     0
+#define AMI_FONTENG_BULLET   1
+#define AMI_FONTENG_DISKFONT 2
+#define AMI_FONTENG_TTENGINE 3
+
 void ami_font_init(void);
 void ami_font_fini(void);
 

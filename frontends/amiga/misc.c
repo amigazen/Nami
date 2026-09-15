@@ -46,27 +46,47 @@ static LONG ami_misc_req(const char *message, uint32 type)
 {
 	LONG ret = 0;
 	struct gui_window *cur_gw = ami_gui_get_active_gw();
+	char *local_msg;
+	char *local_title;
+	char *local_ok;
+#ifndef __amigaos4__
+	struct EasyStruct easyreq;
+#endif
 
-	NSLOG(netsurf, INFO, "%s", message);
+	(void)type;
+
+	/* EasyRequest / intuition expect the system charset, not UTF-8. */
+	local_msg = ami_utf8_easy(message != NULL ? message : "");
+	local_title = ami_utf8_easy(messages_get("NetSurf"));
+	local_ok = ami_utf8_easy(messages_get("OK"));
+
+	NSLOG(netsurf, INFO, "%s", local_msg != NULL ? local_msg : message);
 #ifdef __amigaos4__
 	ret = TimedDosRequesterTags(
-		TDR_TitleString,  messages_get("NetSurf"),
-		TDR_FormatString, message,
-		TDR_GadgetString, messages_get("OK"),
+		TDR_TitleString,  local_title != NULL ? local_title : messages_get("NetSurf"),
+		TDR_FormatString, local_msg != NULL ? local_msg : message,
+		TDR_GadgetString, local_ok != NULL ? local_ok : messages_get("OK"),
 		TDR_ImageType, type,
 		TDR_Window, cur_gw ? ami_gui_get_window(cur_gw) : NULL,
 		TAG_DONE);
 #else
-	struct EasyStruct easyreq = {
-		sizeof(struct EasyStruct),
-		0,
-		messages_get("NetSurf"),
-		message,
-		messages_get("OK"),
-	};
+	easyreq.es_StructSize = sizeof(struct EasyStruct);
+	easyreq.es_Flags = 0;
+	easyreq.es_Title = local_title != NULL ? local_title : (char *)messages_get("NetSurf");
+	easyreq.es_TextFormat = local_msg != NULL ? local_msg : (char *)message;
+	easyreq.es_GadgetFormat = local_ok != NULL ? local_ok : (char *)messages_get("OK");
 
 	ret = EasyRequest(cur_gw ? ami_gui_get_window(cur_gw) : NULL, &easyreq, NULL);
 #endif
+	if (local_msg != NULL) {
+		free(local_msg);
+	}
+	if (local_title != NULL) {
+		free(local_title);
+	}
+	if (local_ok != NULL) {
+		free(local_ok);
+	}
 	return ret;
 }
 
@@ -78,14 +98,21 @@ void ami_misc_fatal_error(const char *message)
 /* exported interface documented in amiga/misc.h */
 nserror amiga_warn_user(const char *warning, const char *detail)
 {
-	char *utf8warning = ami_utf8_easy(messages_get(warning));
-	STRPTR bodytext = ASPrintf("\33b%s\33n\n%s",
-		utf8warning != NULL ? utf8warning : warning, detail);
+	STRPTR bodytext;
+	const char *msg;
 
-	ami_misc_req(bodytext, TDRIMAGE_WARNING);
+	/* messages_get is UTF-8; ami_misc_req converts once for intuition. */
+	msg = messages_get(warning);
+	bodytext = ASPrintf("%s\n%s",
+			msg != NULL ? msg : warning,
+			detail != NULL ? detail : "");
 
-	if(bodytext) FreeVec(bodytext);
-	if(utf8warning) free(utf8warning);
+	ami_misc_req(bodytext != NULL ? (const char *)bodytext : warning,
+			TDRIMAGE_WARNING);
+
+	if (bodytext != NULL) {
+		FreeVec(bodytext);
+	}
 
 	return NSERROR_OK;
 }
@@ -199,34 +226,31 @@ static nserror amiga_nsurl_to_path(struct nsurl *url, char **path_out)
 /**
  * Create a nsurl from a path using amiga file handling.
  *
- * Perform the necessary operations on a path to generate a nsurl.
- *
- * @param[in] path The path to convert.
- * @param[out] url_out pointer to recive the nsurl, The returned url
- *                     must be unreferenced by the caller.
- * @return NSERROR_OK and the url is placed in \a url or error code on
- *         faliure.
+ * Keep Amiga assign/volume names (e.g. PROGDIR:Resources/...).  Resolving via
+ * DevNameFromLock to a host volume path produced file:///AmigaZen/... URLs that
+ * then failed inconsistently in the file fetcher / error pages.
  */
 static nserror amiga_path_to_nsurl(const char *path, struct nsurl **url_out)
 {
 	char *colon = NULL;
 	char *r = NULL;
-	char newpath[1024 + strlen(path)];
-	BPTR lock = 0;
+	char newpath[1024];
 	nserror ret;
 
-	if((lock = Lock(path, SHARED_LOCK))) {
-		DevNameFromLock(lock, newpath, sizeof newpath, DN_FULLPATH);
-		UnLock(lock);
+	if (path == NULL) {
+		return NSERROR_BAD_PARAMETER;
 	}
-	else strlcpy(newpath, path, sizeof newpath);
+
+	strlcpy(newpath, path, sizeof newpath);
 
 	r = malloc(strlen(newpath) + SLEN("file:///") + 1);
 	if (r == NULL) {
 		return NSERROR_NOMEM;
 	}
 
-	if((colon = strchr(newpath, ':'))) *colon = '/';
+	if ((colon = strchr(newpath, ':'))) {
+		*colon = '/';
+	}
 
 	strcpy(r, "file:///");
 	strcat(r, newpath);

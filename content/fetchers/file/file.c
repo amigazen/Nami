@@ -774,12 +774,21 @@ static void fetch_file_process(struct fetch_file_context *ctx)
 {
 	struct stat fdstat; /**< The objects stat */
 
+	NSLOG(fetch, INFO, "file fetch path='%s' url='%s'",
+	      ctx->path != NULL ? ctx->path : "(null)",
+	      ctx->url != NULL ? nsurl_access(ctx->url) : "(null)");
+
 	if (stat(ctx->path, &fdstat) != 0) {
+		NSLOG(fetch, WARNING, "file stat failed path='%s' errno=%d",
+		      ctx->path != NULL ? ctx->path : "(null)", errno);
 		/* process errors as appropriate */
 		fetch_file_process_error(ctx,
 				fetch_file_errno_to_http_code(errno));
 		return;
 	}
+
+	NSLOG(fetch, INFO, "file stat ok size=%ld mode=0%o",
+	      (long)fdstat.st_size, (unsigned)fdstat.st_mode);
 
 	if (S_ISDIR(fdstat.st_mode)) {
 		/* directory listing */

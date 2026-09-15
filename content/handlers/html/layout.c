@@ -392,8 +392,15 @@ static void layout_minmax_table(struct box *table,
 
 	for (i = 0; i != table->columns; i++) {
 		if (col[i].max < col[i].min) {
+#ifndef NDEBUG
 			box_dump(stderr, table, 0, true);
 			assert(0);
+#else
+			NSLOG(layout, WARNING,
+			      "table column %i max (%i) < min (%i)",
+			      (int)i, col[i].max, col[i].min);
+			col[i].max = col[i].min;
+#endif
 		}
 		table_min += col[i].min;
 		table_max += col[i].max;
@@ -1025,8 +1032,15 @@ static void layout_minmax_block(
 	}
 
 	if (max < min) {
+#ifndef NDEBUG
 		box_dump(stderr, block, 0, true);
 		assert(0);
+#else
+		NSLOG(layout, WARNING,
+		      "block max (%i) < min (%i) — clamping",
+		      max, min);
+		max = min;
+#endif
 	}
 
 	/* fixed width takes priority */
@@ -4925,6 +4939,37 @@ layout_absolute(struct box *box,
 	}
 	box->height = height;
 	layout_apply_minmax_height(&content->unit_len_ctx, box, containing_block);
+
+	/*
+	 * CSS transform is unsupported. Sites such as amiga.com centre with
+	 *   position:absolute; top:50%; left:50%; transform:translate(-50%,-50%)
+	 * Without translate, the margin edge sits at the containing-block
+	 * centre and leaves a large empty band above the content. Emulate
+	 * that common idiom when both offsets are 50%.
+	 */
+	{
+		css_fixed lval = 0;
+		css_fixed tval = 0;
+		css_unit lunit = CSS_UNIT_PX;
+		css_unit tunit = CSS_UNIT_PX;
+		uint32_t ltype;
+		uint32_t ttype;
+		int bw;
+		int bh;
+
+		ltype = css_computed_left(box->style, &lval, &lunit);
+		ttype = css_computed_top(box->style, &tval, &tunit);
+		if (ltype == CSS_LEFT_SET && ttype == CSS_TOP_SET &&
+		    lunit == CSS_UNIT_PCT && tunit == CSS_UNIT_PCT &&
+		    lval == INTTOFIX(50) && tval == INTTOFIX(50)) {
+			bw = border[LEFT].width + padding[LEFT] + box->width +
+					padding[RIGHT] + border[RIGHT].width;
+			bh = border[TOP].width + padding[TOP] + box->height +
+					padding[BOTTOM] + border[BOTTOM].width;
+			box->x -= bw / 2;
+			box->y -= bh / 2;
+		}
+	}
 
 	return true;
 }

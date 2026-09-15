@@ -23,11 +23,13 @@
 #include <exec/types.h>
 #include <proto/graphics.h>
 #include <intuition/classusr.h>
-#include <libraries/Picasso96.h>
+#include <cybergraphx/cybergraphics.h>
 
 #include "netsurf/bitmap.h"
 
-#define AMI_BITMAP_FORMAT RGBFB_A8R8G8B8
+/* PIXFMT for AllocBitMap; RECTFMT for PixelArray — see rtg.h */
+#define AMI_BITMAP_FORMAT PIXFMT_ARGB32
+#define AMI_BITMAP_RECTFMT RECTFMT_ARGB
 #define AMI_BITMAP_SCALE_ICON 0xFF
 
 extern struct gui_bitmap_table *amiga_bitmap_table;

@@ -364,7 +364,7 @@ bool dirlist_generate_bottom(char *buffer, int buffer_length)
  * \return  number of times bytesize has been divided by 1024
  */
 
-int dirlist_filesize_calculate(unsigned long *bytesize)
+static int dirlist_filesize_calculate(unsigned long *bytesize)
 {
 	int i = 0;
 	while (*bytesize > 1024 * 4) {
@@ -385,7 +385,7 @@ int dirlist_filesize_calculate(unsigned long *bytesize)
  * \return  Value to display for file size, in units given by filesize_unit()
  */
 
-int dirlist_filesize_value(unsigned long bytesize)
+static int dirlist_filesize_value(unsigned long bytesize)
 {
 	dirlist_filesize_calculate(&bytesize);
 	return (int)bytesize;
@@ -400,7 +400,7 @@ int dirlist_filesize_value(unsigned long bytesize)
  * \return  Units to display for file size, for value given by filesize_value()
  */
 
-char* dirlist_filesize_unit(unsigned long bytesize)
+static char* dirlist_filesize_unit(unsigned long bytesize)
 {
 	const char* units[] = { "Bytes", "kBytes", "MBytes", "GBytes" };
 	return (char*)units[dirlist_filesize_calculate(&bytesize)];

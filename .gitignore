@@ -25,3 +25,5 @@ NetSurf
 core
 nsfb-*
 build
+output.txt
+ns.log

@@ -167,7 +167,7 @@ const struct printer pdf_printer = {
 static char *owner_pass;
 static char *user_pass;
 
-bool pdf_plot_rectangle(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
+static bool pdf_plot_rectangle(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
 {
 	DashPattern_e dash;
 #ifdef PDF_DEBUG
@@ -225,7 +225,7 @@ bool pdf_plot_rectangle(int x0, int y0, int x1, int y1, const plot_style_t *psty
 	return true;
 }
 
-bool pdf_plot_line(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
+static bool pdf_plot_line(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
 {
 	DashPattern_e dash;
 
@@ -257,7 +257,7 @@ bool pdf_plot_line(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
 	return true;
 }
 
-bool pdf_plot_polygon(const int *p, unsigned int n, const plot_style_t *style)
+static bool pdf_plot_polygon(const int *p, unsigned int n, const plot_style_t *style)
 {
 	unsigned int i;
 #ifdef PDF_DEBUG
@@ -293,7 +293,7 @@ bool pdf_plot_polygon(const int *p, unsigned int n, const plot_style_t *style)
 
 
 /**here the clip is only queried */
-bool pdf_plot_clip(const struct rect *clip)
+static bool pdf_plot_clip(const struct rect *clip)
 {
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, "%d %d %d %d", clip->x0, clip->y0, clip->x1,
@@ -313,7 +313,7 @@ bool pdf_plot_clip(const struct rect *clip)
 	return true;
 }
 
-bool pdf_plot_text(int x, int y, const char *text, size_t length,
+static bool pdf_plot_text(int x, int y, const char *text, size_t length,
 		const plot_font_style_t *fstyle)
 {
 #ifdef PDF_DEBUG
@@ -347,7 +347,7 @@ bool pdf_plot_text(int x, int y, const char *text, size_t length,
 	return true;
 }
 
-bool pdf_plot_disc(int x, int y, int radius, const plot_style_t *style)
+static bool pdf_plot_disc(int x, int y, int radius, const plot_style_t *style)
 {
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, ".");
@@ -378,7 +378,7 @@ bool pdf_plot_disc(int x, int y, int radius, const plot_style_t *style)
 	return true;
 }
 
-bool pdf_plot_arc(int x, int y, int radius, int angle1, int angle2, const plot_style_t *style)
+static bool pdf_plot_arc(int x, int y, int radius, int angle1, int angle2, const plot_style_t *style)
 {
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, "%d %d %d %d %d %X", x, y, radius, angle1,
@@ -401,7 +401,7 @@ bool pdf_plot_arc(int x, int y, int radius, int angle1, int angle2, const plot_s
 }
 
 
-bool pdf_plot_bitmap_tile(int x, int y, int width, int height,
+static bool pdf_plot_bitmap_tile(int x, int y, int width, int height,
 		struct bitmap *bitmap, colour bg,
   		bitmap_flags_t flags)
 {
@@ -436,7 +436,7 @@ bool pdf_plot_bitmap_tile(int x, int y, int width, int height,
 	return true;
 }
 
-HPDF_Image pdf_extract_image(struct bitmap *bitmap)
+static HPDF_Image pdf_extract_image(struct bitmap *bitmap)
 {
 	HPDF_Image image = NULL;
 	hlcache_handle *content = NULL;
@@ -606,7 +606,7 @@ static inline float transform_y(const float transform[6], float x, float y)
 		- (transform[1] * x + transform[3] * y + transform[5]);
 }
 
-bool pdf_plot_path(const float *p, unsigned int n, colour fill, float width,
+static bool pdf_plot_path(const float *p, unsigned int n, colour fill, float width,
 		colour c, const float transform[6])
 {
 	unsigned int i;
@@ -837,7 +837,7 @@ static void error_handler(HPDF_STATUS error_no, HPDF_STATUS detail_no,
  * elements' final coordinates are correct.
 */
 #ifdef PDF_DEBUG_DUMPGRID
-void pdf_plot_grid(int x_dist, int y_dist, unsigned int colour)
+static void pdf_plot_grid(int x_dist, int y_dist, unsigned int colour)
 {
 	for (int i = x_dist ; i < page_width ; i += x_dist)
 		pdf_plot_line(i, 0, i, page_height, 1, colour, false, false);
@@ -850,7 +850,7 @@ void pdf_plot_grid(int x_dist, int y_dist, unsigned int colour)
 /**
  * Initialize the gstate wrapper code.
  */
-void pdfw_gs_init()
+static void pdfw_gs_init()
 {
 	pdfw_gs_level = 0;
 	pdfw_gs[0].fillColour = 0x00000000; /* Default PDF fill colour is black.  */
@@ -865,7 +865,7 @@ void pdfw_gs_init()
  * Increase gstate level.
  * \param page	PDF page where the update needs to happen.
  */
-void pdfw_gs_save(HPDF_Page page)
+static void pdfw_gs_save(HPDF_Page page)
 {
 	if (pdfw_gs_level == PDFW_MAX_GSTATES)
 		abort();
@@ -879,7 +879,7 @@ void pdfw_gs_save(HPDF_Page page)
  * operation.
  * \param page	PDF page where the update needs to happen.
  */
-void pdfw_gs_restore(HPDF_Page page)
+static void pdfw_gs_restore(HPDF_Page page)
 {
 	if (pdfw_gs_level == 0)
 		abort();
@@ -900,7 +900,7 @@ void pdfw_gs_restore(HPDF_Page page)
  * \param page	PDF page where the update needs to happen.
  * \param col	Wanted fill colour.
  */
-void pdfw_gs_fillcolour(HPDF_Page page, colour col)
+static void pdfw_gs_fillcolour(HPDF_Page page, colour col)
 {
 	if (col == pdfw_gs[pdfw_gs_level].fillColour)
 		return;
@@ -917,7 +917,7 @@ void pdfw_gs_fillcolour(HPDF_Page page, colour col)
  * \param page	PDF page where the update needs to happen.
  * \param col	Wanted stroke colour.
  */
-void pdfw_gs_strokecolour(HPDF_Page page, colour col)
+static void pdfw_gs_strokecolour(HPDF_Page page, colour col)
 {
 	if (col == pdfw_gs[pdfw_gs_level].strokeColour)
 		return;
@@ -934,7 +934,7 @@ void pdfw_gs_strokecolour(HPDF_Page page, colour col)
  * \param page		PDF page where the update needs to happen.
  * \param lineWidth	Wanted line width.
  */
-void pdfw_gs_linewidth(HPDF_Page page, float lineWidth)
+static void pdfw_gs_linewidth(HPDF_Page page, float lineWidth)
 {
 	if (lineWidth == pdfw_gs[pdfw_gs_level].lineWidth)
 		return;
@@ -949,7 +949,7 @@ void pdfw_gs_linewidth(HPDF_Page page, float lineWidth)
  * \param font		Wanted PDF font.
  * \param font_size	Wanted PDF font size.
  */
-void pdfw_gs_font(HPDF_Page page, HPDF_Font font, HPDF_REAL font_size)
+static void pdfw_gs_font(HPDF_Page page, HPDF_Font font, HPDF_REAL font_size)
 {
 	if (font == pdfw_gs[pdfw_gs_level].font
 		&& font_size == pdfw_gs[pdfw_gs_level].font_size)
@@ -965,7 +965,7 @@ void pdfw_gs_font(HPDF_Page page, HPDF_Font font, HPDF_REAL font_size)
  * \param page	PDF page where the update needs to happen.
  * \param dash	Wanted dash pattern.
  */
-void pdfw_gs_dash(HPDF_Page page, DashPattern_e dash)
+static void pdfw_gs_dash(HPDF_Page page, DashPattern_e dash)
 {
 	if (dash == pdfw_gs[pdfw_gs_level].dash)
 		return;

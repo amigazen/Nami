@@ -201,7 +201,7 @@ nserror ami_mime_init(const char *mimefile)
 			rargs->RDA_Source.CS_Length = 256;
 			rargs->RDA_Source.CS_CurChr = 0;
 
-			rargs->RDA_DAList = NULL;
+			rargs->RDA_DAList = 0;
 			rargs->RDA_Buffer = NULL;
 			rargs->RDA_BufSiz = 0;
 			rargs->RDA_ExtHelp = NULL;

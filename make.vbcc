@@ -1,0 +1,3 @@
+; Run from the netsurf directory:
+;   make -f VMakefile
+make -f VMakefile

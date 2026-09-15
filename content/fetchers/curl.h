@@ -23,6 +23,8 @@
 #ifndef NETSURF_CONTENT_FETCHERS_FETCH_CURL_H
 #define NETSURF_CONTENT_FETCHERS_FETCH_CURL_H
 
+#ifdef WITH_CURL
+
 #include <curl/curl.h>
 
 /**
@@ -34,5 +36,7 @@ nserror fetch_curl_register(void);
 
 /** Global cURL multi handle. */
 extern CURLM *fetch_curl_multi;
+
+#endif /* WITH_CURL */
 
 #endif

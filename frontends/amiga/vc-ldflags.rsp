@@ -1,0 +1,9 @@
+-Lbuild/vbcc-os3/lib
+-lcss
+-ldom
+-lhubbub
+-lparserutils
+-lwapcaplet
+-lnsutils
+-lzlibstubs
+-lzlib

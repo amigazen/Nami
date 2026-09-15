@@ -27,16 +27,49 @@
 #endif
 #include <graphics/gfxbase.h>
 #include <proto/datatypes.h>
+#include <datatypes/datatypesclass.h>
 #include <datatypes/pictureclass.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
 #include <proto/utility.h>
+#include <graphics/view.h>
+#include <graphics/gfxmacros.h>
 
+#ifndef PDTA_ScaleQuality
+#define PDTA_ScaleQuality	TAG_IGNORE
+#endif
+#ifndef PDTA_DitherQuality
+#define PDTA_DitherQuality	TAG_IGNORE
+#endif
+#ifndef PDTA_AlphaChannel
+#define PDTA_AlphaChannel	TAG_IGNORE
+#endif
+#ifndef PDTM_SCALE
+#define PDTM_SCALE		(PDTM_Dummy + 2)
+struct pdtScale {
+	ULONG MethodID;
+	ULONG ps_NewWidth;
+	ULONG ps_NewHeight;
+	ULONG ps_Flags;
+};
+#endif
+#ifndef PDTA_ObtainPixelBuffer
+#define PDTA_ObtainPixelBuffer	TAG_IGNORE
+struct pdtBlitPixelArray {
+	ULONG MethodID;
+	APTR pbpa_PixelData;
+	ULONG pbpa_PixelFormat;
+	ULONG pbpa_PixelArrayMod;
+	ULONG pbpa_Left;
+	ULONG pbpa_Top;
+	ULONG pbpa_Width;
+	ULONG pbpa_Height;
+};
+#endif
+#ifdef __amigaos4__
 #include <proto/guigfx.h>
 #include <guigfx/guigfx.h>
 #include <render/render.h>
-#ifndef __amigaos4__
-#include <inline/guigfx.h>
 #endif
 
 #ifdef __amigaos4__
@@ -77,12 +110,14 @@ struct bitmap {
 	int nativebmwidth;
 	int nativebmheight;
 	PLANEPTR native_mask;
+	ULONG native_mask_width; /* AllocRaster width — must match FreeRaster */
 	Object *dto;
 	struct nsurl *url;   /* temporary storage space */
 	char *title; /* temporary storage space */
 	ULONG *icondata; /* for appicons */
 	colour bg; /* alpha blended */
 	APTR drawhandle; /* guigfx */
+	APTR pensharemap; /* guigfx; owned while drawhandle is live */
 };
 
 enum {
@@ -146,11 +181,15 @@ void *amiga_bitmap_create(int width, int height, enum gui_bitmap_flags flags)
 	bitmap->nativebmwidth = 0;
 	bitmap->nativebmheight = 0;
 	bitmap->native_mask = NULL;
+	bitmap->native_mask_width = 0;
 	bitmap->url = NULL;
 	bitmap->title = NULL;
 	bitmap->icondata = NULL;
 	bitmap->native = AMI_NSBM_NONE;
 	bitmap->drawhandle = NULL;
+	bitmap->pensharemap = NULL;
+	bitmap->dto = NULL;
+	bitmap->bg = NS_TRANSPARENT;
 
 	return bitmap;
 }
@@ -221,10 +260,24 @@ void amiga_bitmap_destroy(void *bitmap)
 			ami_rtg_freebitmap(bm->nativebm);
 		}
 
-		if(bm->native_mask) FreeRaster(bm->native_mask, bm->width, bm->height);
+		if(bm->native_mask) {
+			/* FreeRaster width must be the AllocRaster width (BMA_WIDTH),
+			 * not the logical pixel width — mismatch corrupts Exec's MemList. */
+			FreeRaster(bm->native_mask, bm->native_mask_width, bm->height);
+		}
 
+#ifdef __amigaos4__
 		if(bm->drawhandle) ReleaseDrawHandle(bm->drawhandle);
 		bm->drawhandle = NULL;
+		if(bm->pensharemap != NULL) {
+			DeletePenShareMap(bm->pensharemap);
+			bm->pensharemap = NULL;
+		}
+#endif
+		if(bm->dto != NULL) {
+			DisposeDTObject(bm->dto);
+			bm->dto = NULL;
+		}
 
 #ifdef __amigaos4__
 		if(nsoption_bool(use_extmem) == true) {
@@ -244,6 +297,7 @@ void amiga_bitmap_destroy(void *bitmap)
 		bm->pixdata = NULL;
 		bm->nativebm = NULL;
 		bm->native_mask = NULL;
+		bm->native_mask_width = 0;
 		bm->url = NULL;
 		bm->title = NULL;
 
@@ -289,9 +343,26 @@ void amiga_bitmap_modified(void *bitmap)
 #endif
 
 	if(bm->nativebm) ami_rtg_freebitmap(bm->nativebm);
-	if(bm->native_mask) FreeRaster(bm->native_mask, bm->width, bm->height);
+	if(bm->native_mask) {
+		FreeRaster(bm->native_mask, bm->native_mask_width, bm->height);
+	}
+#ifdef __amigaos4__
+	if(bm->drawhandle != NULL) {
+		ReleaseDrawHandle(bm->drawhandle);
+		bm->drawhandle = NULL;
+	}
+	if(bm->pensharemap != NULL) {
+		DeletePenShareMap(bm->pensharemap);
+		bm->pensharemap = NULL;
+	}
+#endif
+	if(bm->dto != NULL) {
+		DisposeDTObject(bm->dto);
+		bm->dto = NULL;
+	}
 	bm->nativebm = NULL;
 	bm->native_mask = NULL;
+	bm->native_mask_width = 0;
 	bm->native = AMI_NSBM_NONE;
 }
 
@@ -370,34 +441,75 @@ Object *ami_datatype_object_from_bitmap(struct bitmap *bitmap)
 {
 	Object *dto;
 	struct BitMapHeader *bmhd;
+	struct pdtBlitPixelArray pbpa;
+	UBYTE *src;
+	ULONG width, height, stride;
+	BOOL wrote_direct;
+
+	width = (ULONG)bitmap_get_width(bitmap);
+	height = (ULONG)bitmap_get_height(bitmap);
+	stride = (ULONG)amiga_bitmap_get_rowstride(bitmap);
+	src = amiga_bitmap_get_buffer(bitmap);
+	wrote_direct = FALSE;
 
 	if((dto = NewDTObject(NULL,
 					DTA_SourceType,DTST_RAM,
 					DTA_GroupID,GID_PICTURE,
-					//DTA_BaseName,"ilbm",
 					PDTA_DestMode,PMODE_V43,
+					PDTA_ScaleQuality,
+						nsoption_bool(scale_quality) ? 1 : 0,
 					TAG_DONE)))
 	{
 		if(GetDTAttrs(dto,PDTA_BitMapHeader,&bmhd,TAG_DONE))
 		{
-			bmhd->bmh_Width = (UWORD)bitmap_get_width(bitmap);
-			bmhd->bmh_Height = (UWORD)bitmap_get_height(bitmap);
+			bmhd->bmh_Width = (UWORD)width;
+			bmhd->bmh_Height = (UWORD)height;
 			bmhd->bmh_Depth = (UBYTE)32;
 			if(!amiga_bitmap_get_opaque(bitmap)) bmhd->bmh_Masking = mskHasAlpha;
 		}
 
+		memset(&pbpa, 0, sizeof(pbpa));
+
+		/* V47: ask picture.datatype for a direct write buffer when
+		 * available; fall back to PDTM_WRITEPIXELARRAY otherwise.
+		 */
 		SetDTAttrs(dto,NULL,NULL,
 					DTA_ObjName, bitmap->url ? nsurl_access(bitmap->url) : "",
 					DTA_ObjAnnotation,bitmap->title,
 					DTA_ObjAuthor,messages_get("NetSurf"),
-					DTA_NominalHoriz,bitmap_get_width(bitmap),
-					DTA_NominalVert,bitmap_get_height(bitmap),
+					DTA_NominalHoriz, width,
+					DTA_NominalVert, height,
 					PDTA_SourceMode,PMODE_V43,
+					PDTA_ObtainPixelBuffer, &pbpa,
 					TAG_DONE);
 
-		IDoMethod(dto, PDTM_WRITEPIXELARRAY, amiga_bitmap_get_buffer(bitmap),
-					PBPAFMT_ARGB, amiga_bitmap_get_rowstride(bitmap), 0, 0,
-					bitmap_get_width(bitmap), bitmap_get_height(bitmap));
+		if(pbpa.pbpa_PixelData != NULL &&
+		   (pbpa.pbpa_PixelFormat == PBPAFMT_ARGB ||
+		    pbpa.pbpa_PixelFormat == PBPAFMT_RGBA)) {
+			ULONG y;
+			UBYTE *dst = (UBYTE *)pbpa.pbpa_PixelData;
+			ULONG dst_mod = pbpa.pbpa_PixelArrayMod;
+
+			if(pbpa.pbpa_PixelFormat == PBPAFMT_ARGB &&
+			   dst_mod == stride) {
+				memcpy(dst, src, (size_t)stride * (size_t)height);
+				wrote_direct = TRUE;
+			} else if(pbpa.pbpa_PixelFormat == PBPAFMT_ARGB) {
+				for(y = 0; y < height; y++) {
+					memcpy(dst + (y * dst_mod),
+					       src + (y * stride),
+					       (size_t)width * 4UL);
+				}
+				wrote_direct = TRUE;
+			}
+			/* RGBA buffer: keep WRITEPIXELARRAY path below */
+		}
+
+		if(wrote_direct == FALSE) {
+			IDoMethod(dto, PDTM_WRITEPIXELARRAY, src,
+					PBPAFMT_ARGB, stride, 0, 0,
+					width, height);
+		}
 	}
 
 	return dto;
@@ -409,12 +521,18 @@ struct bitmap *ami_bitmap_from_datatype(char *filename)
 	Object *dto;
 	struct bitmap *bm = NULL;
 
+	if(filename == NULL || filename[0] == '\0')
+		return NULL;
+
 	if((dto = NewDTObject(filename,
 					DTA_GroupID, GID_PICTURE,
 					PDTA_DestMode, PMODE_V43,
 					PDTA_PromoteMask, TRUE,
+					PDTA_ScaleQuality,
+						nsoption_bool(scale_quality) ? 1 : 0,
 					TAG_DONE))) {
 		struct BitMapHeader *bmh;
+		BOOL has_alpha = FALSE;
 
 		if(GetDTAttrs(dto, PDTA_BitMapHeader, &bmh, TAG_DONE))
 		{
@@ -424,7 +542,11 @@ struct bitmap *ami_bitmap_from_datatype(char *filename)
 				PBPAFMT_ARGB, amiga_bitmap_get_rowstride(bm), 0, 0,
 				bmh->bmh_Width, bmh->bmh_Height);
 
-			amiga_bitmap_set_opaque(bm, bitmap_test_opaque(bm));
+			if(GetDTAttrs(dto, PDTA_AlphaChannel, &has_alpha, TAG_DONE) == 1) {
+				amiga_bitmap_set_opaque(bm, has_alpha == FALSE);
+			} else {
+				amiga_bitmap_set_opaque(bm, bitmap_test_opaque(bm));
+			}
 		}
 		DisposeDTObject(dto);
 	}
@@ -432,11 +554,277 @@ struct bitmap *ami_bitmap_from_datatype(char *filename)
 	return bm;
 }
 
+/**
+ * Blend soft AARRGGBB onto a NetSurf AABBGGRR background → opaque ARGB.
+ */
+static void ami_bitmap_preblend_argb(ULONG *dst, const ULONG *src,
+		ULONG npix, colour bg)
+{
+	ULONG i;
+	ULONG a, r, g, b;
+	ULONG br, bgc, bb;
+	ULONG inv;
+
+	br = (ULONG)red_from_colour(bg);
+	bgc = (ULONG)green_from_colour(bg);
+	bb = (ULONG)blue_from_colour(bg);
+
+	for (i = 0; i < npix; i++) {
+		a = (src[i] >> 24) & 0xffUL;
+		r = (src[i] >> 16) & 0xffUL;
+		g = (src[i] >> 8) & 0xffUL;
+		b = src[i] & 0xffUL;
+		if (a == 0xffUL) {
+			dst[i] = src[i] | 0xff000000UL;
+		} else if (a == 0) {
+			dst[i] = 0xff000000UL | (br << 16) | (bgc << 8) | bb;
+		} else {
+			inv = 255UL - a;
+			r = (r * a + br * inv) / 255UL;
+			g = (g * a + bgc * inv) / 255UL;
+			b = (b * a + bb * inv) / 255UL;
+			dst[i] = 0xff000000UL | (r << 16) | (g << 8) | b;
+		}
+	}
+}
+
+/**
+ * Soft ARGB → native BitMap via picture.datatype Remap against the screen
+ * colormap (ObtainBestPen / PRECISION_IMAGE).
+ * Keep dto on the bitmap so allocated pens stay owned while nativebm lives.
+ *
+ * Order matters on OS3: do not attach PDTA_Screen until after the ARGB
+ * source exists. Creating a RAM object with Remap+Screen (and friend BM)
+ * before WRITEPIXELARRAY hangs during throbber init.
+ */
+static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
+			int width, int height, struct BitMap *restrict friendbm,
+			int type, colour bg)
+{
+	struct Screen *scrn = ami_gui_get_screen();
+	Object *dto;
+	struct BitMapHeader *bmhd;
+	struct BitMap *destbm;
+	struct BitMap *owned;
+	UBYTE *src;
+	ULONG *blend;
+	ULONG npix;
+	ULONG sw, sh, stride;
+	ULONG depth;
+	ULONG ok;
+	ULONG ditherq;
+
+	dto = NULL;
+	destbm = NULL;
+	owned = NULL;
+	blend = NULL;
+	bmhd = NULL;
+
+	sw = (ULONG)bitmap->width;
+	sh = (ULONG)bitmap->height;
+	stride = (ULONG)amiga_bitmap_get_rowstride(bitmap);
+	src = amiga_bitmap_get_buffer(bitmap);
+	npix = sw * sh;
+
+	if (scrn == NULL || src == NULL || width < 1 || height < 1) {
+		return NULL;
+	}
+
+	/* Prefer a standard friend for AllocBitMap when the caller supplied one. */
+	if (friendbm != NULL &&
+	    (GetBitMapAttr(friendbm, BMA_FLAGS) & BMF_STANDARD) == 0) {
+		friendbm = NULL;
+	}
+	if (type != AMI_NSBM_PALETTEMAPPED && type != AMI_NSBM_TRUECOLOUR) {
+		type = AMI_NSBM_PALETTEMAPPED;
+	}
+
+	if (bitmap->dto != NULL) {
+		DisposeDTObject(bitmap->dto);
+		bitmap->dto = NULL;
+	}
+	if (bitmap->nativebm != NULL) {
+		ami_rtg_freebitmap(bitmap->nativebm);
+		bitmap->nativebm = NULL;
+		bitmap->native = AMI_NSBM_NONE;
+	}
+
+	if ((!bitmap->opaque) && (bg != NS_TRANSPARENT)) {
+		blend = (ULONG *)malloc((size_t)npix * sizeof(ULONG));
+		if (blend != NULL) {
+			ami_bitmap_preblend_argb(blend, (const ULONG *)src,
+					npix, bg);
+			src = (UBYTE *)blend;
+			stride = sw * 4UL;
+		}
+	}
+
+	ditherq = 1;
+	if (nsoption_int(dither_quality) == 0) {
+		ditherq = 0;
+	} else if (nsoption_int(dither_quality) >= 2) {
+		ditherq = 2;
+	}
+
+	NSLOG(netsurf, INFO,
+	      "ami_bitmap_get_picturedt: NewDTObject %lux%lu -> %dx%d",
+	      (unsigned long)sw, (unsigned long)sh, width, height);
+
+	/* Same create tags as the soft-buffer path; Remap is Init-only (I).
+	 * Screen / dither applied after pixels exist (see autodoc note on
+	 * passing PDTA_Screen before or with DTM_PROCLAYOUT).
+	 */
+	dto = NewDTObject(NULL,
+			DTA_SourceType, DTST_RAM,
+			DTA_GroupID, GID_PICTURE,
+			PDTA_DestMode, PMODE_V42,
+			PDTA_Remap, TRUE,
+			PDTA_FreeSourceBitMap, TRUE,
+			PDTA_UseFriendBitMap, FALSE,
+			OBP_Precision, PRECISION_IMAGE,
+			PDTA_ScaleQuality,
+				nsoption_bool(scale_quality) ? 1 : 0,
+			TAG_DONE);
+
+	if (dto == NULL) {
+		NSLOG(netsurf, WARNING,
+		      "ami_bitmap_get_picturedt: NewDTObject failed IoErr=%ld",
+		      (long)IoErr());
+		free(blend);
+		return NULL;
+	}
+
+	if (GetDTAttrs(dto, PDTA_BitMapHeader, &bmhd, TAG_DONE) &&
+	    bmhd != NULL) {
+		bmhd->bmh_Width = (UWORD)sw;
+		bmhd->bmh_Height = (UWORD)sh;
+		bmhd->bmh_Depth = 32;
+		bmhd->bmh_Masking = (blend != NULL || bitmap->opaque)
+				? mskNone : mskHasAlpha;
+	}
+
+	SetDTAttrs(dto, NULL, NULL,
+			DTA_NominalHoriz, sw,
+			DTA_NominalVert, sh,
+			PDTA_SourceMode, PMODE_V43,
+			TAG_DONE);
+
+	NSLOG(netsurf, INFO,
+	      "ami_bitmap_get_picturedt: WRITEPIXELARRAY");
+	ok = IDoMethod(dto, PDTM_WRITEPIXELARRAY, src,
+			PBPAFMT_ARGB, stride, 0, 0, sw, sh);
+	if (ok == 0) {
+		NSLOG(netsurf, WARNING,
+		      "ami_bitmap_get_picturedt: WRITEPIXELARRAY failed");
+		DisposeDTObject(dto);
+		free(blend);
+		return NULL;
+	}
+
+	if ((ULONG)width != sw || (ULONG)height != sh) {
+		NSLOG(netsurf, INFO,
+		      "ami_bitmap_get_picturedt: PDTM_SCALE %dx%d",
+		      width, height);
+		ok = IDoMethod(dto, PDTM_SCALE, (ULONG)width, (ULONG)height, 0);
+		if (ok == 0) {
+			NSLOG(netsurf, WARNING,
+			      "ami_bitmap_get_picturedt: PDTM_SCALE failed");
+			DisposeDTObject(dto);
+			free(blend);
+			return NULL;
+		}
+	}
+
+	/* Attach screen + dither only once the source is ready to remap. */
+	SetDTAttrs(dto, NULL, NULL,
+			PDTA_Screen, scrn,
+			PDTA_DitherQuality, ditherq,
+			TAG_DONE);
+
+	NSLOG(netsurf, INFO,
+	      "ami_bitmap_get_picturedt: PROCLAYOUT Remap");
+	ok = DoMethod(dto, DTM_PROCLAYOUT, NULL, 1);
+	if (ok == 0) {
+		NSLOG(netsurf, WARNING,
+		      "ami_bitmap_get_picturedt: PROCLAYOUT failed IoErr=%ld",
+		      (long)IoErr());
+		DisposeDTObject(dto);
+		free(blend);
+		return NULL;
+	}
+
+	destbm = NULL;
+	GetDTAttrs(dto, PDTA_DestBitMap, &destbm, TAG_DONE);
+	if (destbm == NULL) {
+		GetDTAttrs(dto, PDTA_BitMap, &destbm, TAG_DONE);
+	}
+	if (destbm == NULL) {
+		NSLOG(netsurf, WARNING,
+		      "ami_bitmap_get_picturedt: no DestBitMap after layout");
+		DisposeDTObject(dto);
+		free(blend);
+		return NULL;
+	}
+
+	depth = GetBitMapAttr(destbm, BMA_DEPTH);
+	owned = AllocBitMap((ULONG)width, (ULONG)height, depth,
+			BMF_CLEAR | BMF_STANDARD,
+			friendbm != NULL ? friendbm : destbm);
+	if (owned == NULL) {
+		owned = AllocBitMap((ULONG)width, (ULONG)height, depth,
+				BMF_CLEAR,
+				friendbm != NULL ? friendbm : destbm);
+	}
+	if (owned == NULL) {
+		NSLOG(netsurf, WARNING,
+		      "ami_bitmap_get_picturedt: AllocBitMap %dx%d failed",
+		      width, height);
+		DisposeDTObject(dto);
+		free(blend);
+		return NULL;
+	}
+
+	BltBitMap(destbm, 0, 0, owned, 0, 0, width, height, 0xC0, 0xFF, NULL);
+
+	NSLOG(netsurf, INFO,
+	      "ami_bitmap_get_picturedt: ok %ldx%ld -> %dx%d depth=%lu",
+	      (long)sw, (long)sh, width, height, (unsigned long)depth);
+
+	free(blend);
+	bitmap->dto = dto;
+	bitmap->nativebm = owned;
+	bitmap->nativebmwidth = width;
+	bitmap->nativebmheight = height;
+	bitmap->native = type;
+	bitmap->bg = bg;
+
+	return owned;
+}
+
+#ifdef __amigaos4__
 static inline struct BitMap *ami_bitmap_get_guigfx(struct bitmap *bitmap,
 			int width, int height, struct BitMap *restrict friendbm, int type, colour bg)
 {
 	struct BitMap *restrict tbm = NULL;
 	struct Screen *scrn = ami_gui_get_screen();
+	struct RastPort rp;
+	ULONG dithermode;
+	APTR picture;
+	APTR drawhandle;
+	ULONG *src;
+	ULONG *tmp;
+	ULONG npix;
+	ULONG i;
+	UBYTE *bmbuffer;
+	BOOL stripped;
+	struct TagItem mp_tags[5];
+	struct TagItem odh_tags[4];
+	struct TagItem draw_tags[3];
+
+	tmp = NULL;
+	picture = NULL;
+	drawhandle = NULL;
+	stripped = FALSE;
 
 	if(type == AMI_NSBM_TRUECOLOUR) {
 		tbm = ami_rtg_allocbitmap(width, height, 32, 0,
@@ -444,77 +832,159 @@ static inline struct BitMap *ami_bitmap_get_guigfx(struct bitmap *bitmap,
 		if(tbm == NULL) return NULL;
 	} else {
 		tbm = ami_rtg_allocbitmap(width, height,
-			8, 0, friendbm, AMI_BITMAP_FORMAT);
+			8, 0, friendbm, 0);
 		if(tbm == NULL) return NULL;
 	}
 	
 	if(GuiGFXBase != NULL) {
-		struct RastPort rp;
 		InitRastPort(&rp);
 		rp.BitMap = tbm;
-		ULONG dithermode = DITHERMODE_NONE;
 
+		/* Palette: dither by default; NULL psm uses a coarse colour cube. */
+		dithermode = DITHERMODE_NONE;
+		if (type == AMI_NSBM_PALETTEMAPPED) {
+			dithermode = DITHERMODE_EDD;
+		}
 		if(nsoption_int(dither_quality) == 1) {
 			dithermode = DITHERMODE_EDD;
 		} else if(nsoption_int(dither_quality) == 2) {
 			dithermode = DITHERMODE_FS;
+		} else if(nsoption_int(dither_quality) == 0 &&
+				type != AMI_NSBM_PALETTEMAPPED) {
+			dithermode = DITHERMODE_NONE;
 		}
 
 		if((!bitmap->opaque) && nsoption_bool(invert_alpha)) {
-			/* invert alpha */
-			unsigned char *bmbuffer = amiga_bitmap_get_buffer(bitmap);
-			for(int i = 0; i < (bitmap->width * bitmap->height * 4); i+=4) {
+			bmbuffer = amiga_bitmap_get_buffer(bitmap);
+			for(i = 0; i < (ULONG)(bitmap->width * bitmap->height * 4); i += 4) {
 				bmbuffer[i] = 255 - bmbuffer[i];
 			}
 		}
 
-		APTR picture = MakePicture(amiga_bitmap_get_buffer(bitmap), bitmap->width, bitmap->height,
-										GGFX_PixelFormat, PIXFMT_0RGB_32,
-										GGFX_AlphaPresent, !bitmap->opaque,
-										GGFX_Independent, TRUE,
-										GGFX_DestWidth, width,
-										GGFX_DestHeight, height,
-										TAG_DONE);
+		/*
+		 * Soft bitmaps are AARRGGBB. guigfx PIXFMT_0RGB_32 wants
+		 * 0x00RRGGBB. Scale in DrawPicture, not MakePicture.
+		 */
+		src = (ULONG *)amiga_bitmap_get_buffer(bitmap);
+		npix = (ULONG)bitmap->width * (ULONG)bitmap->height;
+		tmp = (ULONG *)malloc((size_t)npix * sizeof(ULONG));
+
+		mp_tags[0].ti_Tag = GGFX_PixelFormat;
+		mp_tags[0].ti_Data = PIXFMT_0RGB_32;
+		mp_tags[1].ti_Tag = GGFX_Independent;
+		mp_tags[1].ti_Data = TRUE;
+		mp_tags[2].ti_Tag = GGFX_AlphaPresent;
+		mp_tags[3].ti_Tag = TAG_DONE;
+		mp_tags[3].ti_Data = 0;
+
+		if (tmp != NULL) {
+			for (i = 0; i < npix; i++) {
+				tmp[i] = src[i] & 0x00ffffffUL;
+			}
+			mp_tags[2].ti_Data = FALSE;
+			picture = MakePictureA(tmp, (UWORD)bitmap->width,
+					(UWORD)bitmap->height, mp_tags);
+			free(tmp);
+			tmp = NULL;
+			stripped = TRUE;
+		} else {
+			NSLOG(netsurf, WARNING,
+			      "ami_bitmap_get_guigfx: no tmp for %ldx%ld",
+			      (long)bitmap->width, (long)bitmap->height);
+			mp_tags[2].ti_Data = !bitmap->opaque;
+			picture = MakePictureA(amiga_bitmap_get_buffer(bitmap),
+					(UWORD)bitmap->width,
+					(UWORD)bitmap->height, mp_tags);
+		}
 
 		if((!bitmap->opaque) && nsoption_bool(invert_alpha)) {
-			/* invert alpha */
-			unsigned char *bmbuffer = amiga_bitmap_get_buffer(bitmap);
-			for(int i = 0; i < (bitmap->width * bitmap->height * 4); i+=4) {
+			bmbuffer = amiga_bitmap_get_buffer(bitmap);
+			for(i = 0; i < (ULONG)(bitmap->width * bitmap->height * 4); i += 4) {
 				bmbuffer[i] = 255 - bmbuffer[i];
 			}
 		}
 
 		if(picture == NULL) {
+			NSLOG(netsurf, WARNING,
+			      "ami_bitmap_get_guigfx: MakePicture failed %ldx%ld",
+			      (long)bitmap->width, (long)bitmap->height);
 			amiga_warn_user("BMConvErr", NULL);
+			ami_rtg_freebitmap(tbm);
+			return NULL;
 		}
 
-		/* Alpha-blend the image to the provided background colour.
-		 * This appears to be using an inverted alpha on OS3
+		if((!bitmap->opaque) && (bg != NS_TRANSPARENT) && stripped == FALSE) {
+			DoPictureMethod(picture, PICMTHD_TINTALPHA,
+					colour_rb_swap(bg), TAG_DONE);
+		}
+
+		if (bitmap->drawhandle != NULL) {
+			ReleaseDrawHandle(bitmap->drawhandle);
+			bitmap->drawhandle = NULL;
+		}
+		if (bitmap->pensharemap != NULL) {
+			DeletePenShareMap(bitmap->pensharemap);
+			bitmap->pensharemap = NULL;
+		}
+
+		/*
+		 * NULL pensharemap so guigfx builds an internal MapEngine.
+		 * A caller-owned PenShareMap skips MapEngine and DrawPicture
+		 * crashes inside render.library Render().
 		 */
-		if((!bitmap->opaque) && (bg != NS_TRANSPARENT)) {
-			DoPictureMethod(picture, PICMTHD_TINTALPHA, colour_rb_swap(bg), TAG_DONE);
-		}
+		odh_tags[0].ti_Tag = OBP_Precision;
+		odh_tags[0].ti_Data = PRECISION_IMAGE;
+		odh_tags[1].ti_Tag = GGFX_DitherMode;
+		odh_tags[1].ti_Data = dithermode;
+		odh_tags[2].ti_Tag = GGFX_AutoDither;
+		odh_tags[2].ti_Data = FALSE;
+		odh_tags[3].ti_Tag = TAG_DONE;
+		odh_tags[3].ti_Data = 0;
 
-		if(bitmap->drawhandle) ReleaseDrawHandle(bitmap->drawhandle);
-		
-		bitmap->drawhandle = ObtainDrawHandle(
+		NSLOG(netsurf, INFO,
+		      "ami_bitmap_get_guigfx: ObtainDrawHandle %ldx%ld (NULL psm)",
+		      (long)width, (long)height);
+		drawhandle = ObtainDrawHandleA(
 			NULL,
 			&rp,
 			scrn->ViewPort.ColorMap,
-			GGFX_DitherMode, dithermode,
-			TAG_DONE);
+			odh_tags);
+		NSLOG(netsurf, INFO,
+		      "ami_bitmap_get_guigfx: ObtainDrawHandle -> %p",
+		      (void *)drawhandle);
 
-		if(bitmap->drawhandle) {
-			DrawPicture(bitmap->drawhandle, picture, 0, 0, TAG_DONE);
+		if (drawhandle != NULL) {
+			draw_tags[0].ti_Tag = GGFX_DestWidth;
+			draw_tags[0].ti_Data = (ULONG)width;
+			draw_tags[1].ti_Tag = GGFX_DestHeight;
+			draw_tags[1].ti_Data = (ULONG)height;
+			draw_tags[2].ti_Tag = TAG_DONE;
+			draw_tags[2].ti_Data = 0;
+
+			NSLOG(netsurf, INFO,
+			      "ami_bitmap_get_guigfx: DrawPicture %ldx%ld -> %dx%d",
+			      (long)bitmap->width, (long)bitmap->height,
+			      width, height);
+			DrawPictureA(drawhandle, picture, 0, 0, draw_tags);
+			NSLOG(netsurf, INFO, "ami_bitmap_get_guigfx: DrawPicture done");
+			bitmap->drawhandle = drawhandle;
+			drawhandle = NULL;
+		} else {
+			NSLOG(netsurf, WARNING,
+			      "ami_bitmap_get_guigfx: ObtainDrawHandle failed");
+			DeletePicture(picture);
+			ami_rtg_freebitmap(tbm);
+			return NULL;
 		}
-		
+
 		DeletePicture(picture);
-		
 	} else {
 		if(guigfx_warned == false) {
 			amiga_warn_user("BMConvErr", NULL);
 			guigfx_warned = true;
 		}
+		ami_rtg_freebitmap(tbm);
+		return NULL;
 	}
 
 	if(((type == AMI_NSBM_TRUECOLOUR) && (nsoption_int(cache_bitmaps) == 2)) ||
@@ -530,6 +1000,8 @@ static inline struct BitMap *ami_bitmap_get_guigfx(struct bitmap *bitmap,
 
 	return tbm;
 }
+
+#endif /* __amigaos4__ */
 
 static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 			int width, int height, struct BitMap *restrict friendbm, int type, colour bg)
@@ -558,12 +1030,13 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 	}
 
 	if(tbm == NULL) {
-		/* If palette mapped or OS3, use guigfx */
-#ifdef __amigaos4__
+#ifndef __amigaos4__
+		/* OS3: picture.datatype Remap + Screen (no guigfx) */
+		return ami_bitmap_get_picturedt(bitmap, width, height,
+				friendbm, type, bg);
+#else
 		if(type == AMI_NSBM_PALETTEMAPPED)
-#endif
 			return ami_bitmap_get_guigfx(bitmap, width, height, friendbm, type, bg);
-
 
 		if(type == AMI_NSBM_TRUECOLOUR) {
 			tbm = ami_rtg_allocbitmap(bitmap->width, bitmap->height, 32, 0,
@@ -572,7 +1045,7 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 
 			ami_rtg_writepixelarray(amiga_bitmap_get_buffer(bitmap),
 										tbm, bitmap->width, bitmap->height,
-										bitmap->width * 4, AMI_BITMAP_FORMAT);
+										bitmap->width * 4, AMI_BITMAP_RECTFMT);
 		}
 
 		if(((type == AMI_NSBM_TRUECOLOUR) && (nsoption_int(cache_bitmaps) == 2)) ||
@@ -584,8 +1057,18 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 			bitmap->nativebmheight = bitmap->height;
 			bitmap->native = type;
 		}
+#endif
 	}
 
+#ifndef __amigaos4__
+	/* Cached at a different size — rebuild via picture.datatype */
+	if ((bitmap->nativebmwidth != width) ||
+	    (bitmap->nativebmheight != height)) {
+		return ami_bitmap_get_picturedt(bitmap, width, height,
+				friendbm, type, bg);
+	}
+	return tbm;
+#else
 	if((bitmap->width != width) || (bitmap->height != height)) {
 		if((bitmap->nativebmwidth == width) && (bitmap->nativebmheight == height))
 			return bitmap->nativebm;
@@ -597,7 +1080,6 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 
 		scaledbm = ami_rtg_allocbitmap(width, height, depth, 0,
 									friendbm, AMI_BITMAP_FORMAT);
-#ifdef __amigaos4__
 		if(__builtin_expect(((GfxBase->LibNode.lib_Version >= 53) &&
 			(type == AMI_NSBM_TRUECOLOUR)), 1)) {
 			/* AutoDoc says v52, but this function isn't in OS4.0, so checking for v53 (OS4.1)
@@ -624,9 +1106,6 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 				NSLOG(netsurf, INFO,
 				      "Composite error %ld - falling back",
 				      err);
-				/* If it failed, do it again the way
-				 *  which works in software
-				 */
 #else
 			{
 #endif
@@ -639,12 +1118,10 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 						COMPTAG_Flags, flags,
 						COMPTAG_FriendBitMap, scrn->RastPort.BitMap,
 						TAG_DONE);
-				/* If it still fails... it's non-fatal */
 				NSLOG(netsurf, INFO,
 				      "Fallback returned error %ld", err);
 			}
 		} else /* Do it the old-fashioned way.  This is pretty slow, even on OS4.1 */
-#endif
 		{
 			bsa.bsa_SrcX = 0;
 			bsa.bsa_SrcY = 0;
@@ -680,6 +1157,7 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 	}
 
 	return tbm;
+#endif /* __amigaos4__ */
 }
 
 
@@ -708,6 +1186,9 @@ PLANEPTR ami_bitmap_get_mask(struct bitmap *bitmap, int width,
 	bm_width = GetBitMapAttr(n_bm, BMA_WIDTH);
 	bpr = RASSIZE(bm_width, 1);
 	bitmap->native_mask = AllocRaster(bm_width, height);
+	if(bitmap->native_mask == NULL)
+		return NULL;
+	bitmap->native_mask_width = bm_width;
 	SetMem(bitmap->native_mask, 0, bpr * height);
 
 	for(y=0; y<height; y++) {
@@ -776,7 +1257,7 @@ static nserror bitmap_render(struct bitmap *bitmap, struct hlcache_handle *conte
 	content_scaled_redraw(content, plot_width, plot_height, &ctx);
 
 	ami_rtg_readpixelarray(ami_plot_ra_get_bitmap(bm_globals), &bitmap->pixdata,
-							bitmap->width, bitmap->height, 4 * bitmap->width, AMI_BITMAP_FORMAT);
+							bitmap->width, bitmap->height, 4 * bitmap->width, AMI_BITMAP_RECTFMT);
 
 	/**\todo In theory we should be able to move the bitmap to our native area
 		to try to avoid re-conversion (at the expense of memory) */
