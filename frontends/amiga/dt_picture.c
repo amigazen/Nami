@@ -106,7 +106,7 @@ static const content_handler amiga_dt_picture_content_handler = {
 struct amiga_dt_picture_content {
 	struct content c;
 	Object *dto;
-	char *spill; /* RAM: file we created; NULL if using original file:// path */
+	char *spill; /* T: file we created; NULL if using original file:// path */
 };
 
 /**
@@ -340,13 +340,14 @@ static void amiga_dt_picture_force_opaque_buffer(struct bitmap *bitmap)
 	amiga_bitmap_set_opaque(bitmap, true);
 }
 
-/* Keyed spill directory under T: for this NetSurf process (not RAM:). */
+/* Keyed spill directory under T: for this NetSurf process. */
 static char amiga_dt_spill_dir[40];
 static BOOL amiga_dt_spill_ready;
 static ULONG amiga_dt_spill_seq;
 
 /**
  * Ensure T:nsXXXXXXXX/ exists (key = FindTask address). Files land inside.
+ * Never spill to RAM: — only a keyed subfolder of T:.
  */
 static BOOL amiga_dt_picture_ensure_spill_dir(void)
 {
@@ -373,6 +374,9 @@ static BOOL amiga_dt_picture_ensure_spill_dir(void)
 	}
 	UnLock(lock);
 	amiga_dt_spill_ready = TRUE;
+	NSLOG(netsurf, INFO,
+	      "amiga_dt_picture: spill dir %s",
+	      amiga_dt_spill_dir);
 	return TRUE;
 }
 
@@ -796,7 +800,7 @@ static Object *amiga_dt_picture_newdtobject(struct amiga_dt_picture_content *adt
 
 	adt->spill = path;
 	adt->dto = dto;
-	NSLOG(netsurf, INFO,
+	NSLOG(netsurf, DEBUG,
 	      "amiga_dt_picture: layout ok spill=%s size=%lu",
 	      path, (unsigned long)size);
 	return adt->dto;
@@ -979,7 +983,7 @@ static bool amiga_dt_picture_convert(struct content *c)
 	struct amiga_dt_picture_content *adt =
 			(struct amiga_dt_picture_content *)c;
 
-	NSLOG(netsurf, INFO, "amiga_dt_picture_convert");
+	NSLOG(netsurf, DEBUG, "amiga_dt_picture_convert");
 
 	dto = amiga_dt_picture_newdtobject(adt);
 	if (dto == NULL) {
@@ -1042,7 +1046,7 @@ static bool amiga_dt_picture_convert(struct content *c)
 	}
 #endif
 
-	NSLOG(netsurf, INFO,
+	NSLOG(netsurf, DEBUG,
 	      "amiga_dt_picture_convert: ok %dx%d", width, height);
 
 	c->width = width;

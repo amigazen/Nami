@@ -272,7 +272,7 @@ RXHOOKF(rx_open)
 	if((cmd->ac_ArgList[4]) && (cmd->ac_ArgList[5]))
 		gw = ami_find_tab(*(ULONG *)cmd->ac_ArgList[4], *(ULONG *)cmd->ac_ArgList[5]);
 
-	if (nsurl_create((char *)cmd->ac_ArgList[0], &url) != NSERROR_OK) {
+	if (ami_string_to_nsurl((char *)cmd->ac_ArgList[0], &url) != NSERROR_OK) {
 		amiga_warn_user("NoMemory", 0);
 		return;
 	}

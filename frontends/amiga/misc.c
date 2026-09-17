@@ -196,7 +196,7 @@ LONG ami_misc_requester_ex(struct Window *win,
 	if(body == NULL)
 		body = "";
 	if(gadgets == NULL)
-		gadgets = "OK";
+		gadgets = "Ok";
 
 	ret = ami_misc_requester_via_class(win, title, body, gadgets,
 			image, timeout_secs, inactive);
@@ -333,7 +333,7 @@ int32 amiga_warn_user_multi(const char *body, const char *opt1, const char *opt2
 	res = ami_misc_requester(win,
 			local_title != NULL ? local_title : messages_get("NetSurf"),
 			local_text != NULL ? local_text : body,
-			local_gadgets != NULL ? local_gadgets : "OK|Cancel",
+			local_gadgets != NULL ? local_gadgets : "Ok|Cancel",
 			AMI_REQ_IMAGE_WARNING);
 
 	if(local_text != NULL)
@@ -452,6 +452,118 @@ static nserror amiga_path_to_nsurl(const char *path, struct nsurl **url_out)
 	free(r);
 
 	return ret;
+}
+
+/**
+ * True if s begins with a known URI scheme and ':' (case-insensitive).
+ * Used so http(s)/ftp/… are never treated as Amiga volume names.
+ */
+static int ami_string_has_uri_scheme(const char *s)
+{
+	static const char *const schemes[] = {
+		"https", "http", "file", "ftp", "ftps",
+		"about", "mailto", "data", "javascript", "resource",
+		"gemini", "gopher", "news", "nntp", "irc", "ircs",
+		"magnet", "blob", "ws", "wss", "view-source",
+		NULL
+	};
+	const char *colon;
+	size_t schemelen;
+	int i;
+	size_t j;
+	const char *name;
+
+	if(s == NULL || *s == '\0')
+		return 0;
+
+	colon = strchr(s, ':');
+	if(colon == NULL || colon == s)
+		return 0;
+
+	schemelen = (size_t)(colon - s);
+	for(i = 0; schemes[i] != NULL; i++) {
+		name = schemes[i];
+		if(strlen(name) != schemelen)
+			continue;
+		for(j = 0; j < schemelen; j++) {
+			char a = s[j];
+			char b = name[j];
+			if(a >= 'A' && a <= 'Z')
+				a = (char)(a - 'A' + 'a');
+			if(a != b)
+				break;
+		}
+		if(j == schemelen)
+			return 1;
+	}
+	return 0;
+}
+
+/**
+ * True if s has scheme:// (RFC-style hierarchical URI), case on scheme OK.
+ */
+static int ami_string_has_authority_uri(const char *s)
+{
+	const char *p;
+	const char *slash;
+
+	if(s == NULL)
+		return 0;
+	slash = strstr(s, "://");
+	if(slash == NULL || slash == s)
+		return 0;
+	/* Scheme chars before :// */
+	for(p = s; p < slash; p++) {
+		char c = *p;
+		if((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+			continue;
+		if(p != s && ((c >= '0' && c <= '9') || c == '+' ||
+			      c == '-' || c == '.'))
+			continue;
+		return 0;
+	}
+	return 1;
+}
+
+/**
+ * Turn a Shell / ARexx / OpenURL string into an nsurl.
+ *
+ * URI schemes are always tried as URIs first — never Lock()/Vol:path rewrite
+ * a web URL (that became file:///https/... or a fake "https" volume).
+ * Amiga Vol:path (PROGDIR:…, Work:Docs/…) only when it is not a known URI.
+ */
+nserror ami_string_to_nsurl(const char *s, struct nsurl **url_out)
+{
+	BPTR lock;
+	nserror error;
+
+	if(s == NULL || url_out == NULL)
+		return NSERROR_BAD_PARAMETER;
+
+	*url_out = NULL;
+
+	/* http(s)://…, file://…, or known scheme:… — never as Amiga path */
+	if(ami_string_has_authority_uri(s) || ami_string_has_uri_scheme(s)) {
+		return nsurl_create(s, url_out);
+	}
+
+	/* Amiga path: Lock if it exists, else try path→file URL, else nsurl */
+	lock = Lock((STRPTR)s, ACCESS_READ);
+	if(lock != 0) {
+		UnLock(lock);
+		return netsurf_path_to_nsurl(s, url_out);
+	}
+
+	if(strchr(s, ':') != NULL) {
+		error = netsurf_path_to_nsurl(s, url_out);
+		if(error == NSERROR_OK)
+			return error;
+	}
+
+	error = nsurl_create(s, url_out);
+	if(error != NSERROR_OK)
+		error = netsurf_path_to_nsurl(s, url_out);
+	return error;
 }
 
 /**

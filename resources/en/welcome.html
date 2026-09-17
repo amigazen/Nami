@@ -1,63 +1,99 @@
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+	"http://www.w3.org/TR/html4/strict.dtd">
 <html>
 <head>
-<title>Welcome to Nami</title>
-<style type="text/css">html,body{margin:0;padding:0;}body{color:#000;background:#fff;font-family:sans-serif;margin:0 auto;}a:link{text-decoration:underline;color:#00f;}a:visited{text-decoration:underline;color:#60a;}a:hover{text-decoration:none;}a:active{text-decoration:underline;color:#f00;}.banner{margin:0;padding:0;background:#94adff;text-align:left;}.banner img{border:none;color:#000;height:86px;width:308px;display:block;}.onlycontent{margin:0 1em;}.nslinks{display:table;width:100%;margin:0;border-spacing:0;padding:0;background:#ccd8ff;font-size:94%;}.nslinks li{display:table-cell;text-align:center;padding:0.2em 0.3em 0.3em;vertical-align:middle;}.nslinks li+li{border-left:2px solid #b1c3ff;}.version{padding:0;margin:1.2em auto 0;width:90%;color:#444;font-size:160%;}.intro{width: 90%;margin:1em auto;color:#666;}.websearch{margin:1.5em auto;padding:1.2em 0.3em;background:#d8e2ff;border:2px solid #c5d3ff;width:80%;text-align:center;}input[type=text]{border:2px solid #b6c7ff;background:#f9faff;color:#000;margin:2px;}input[type=submit]{border:2px outset #cedaff;color:#000;background:#cedaff;margin:2px;}.links{display:table;width:80%;margin:0 auto 3em;font-size:94%;}.links ul{display:table-cell;padding-left:2.5em;}.links ul+ul{padding-left:1em;}.footer{font-style:italic;color:#666;text-align:right;}.footer p{margin-top:1.5em;padding-top:0.4em;border-top:2px solid #94adff;}</style>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Nami</title>
+<link rel="stylesheet" type="text/css" href="nami.css">
 </head>
 
 <body>
-<h1 class="banner"><a href="https://www.amigazen.com/nami/"><img src="about:logo" alt="Nami"></a></h1>
 
-<ul class="nslinks">
-<li><a href="https://www.amigazen.com/nami/">Nami web&nbsp;site</a></li>
-<li><a href="https://www.netsurf-browser.org/">NetSurf project</a></li>
-<li><a href="https://www.netsurf-browser.org/documentation/">Documentation</a></li>
-<li><a href="https://www.netsurf-browser.org/contact/">Contact NetSurf developers</a></li>
-</ul>
-
-<div class="onlycontent">
-<h2 class="version">Welcome to Nami</h2>
-
-<p class="intro">Nami (波 — “wave”) is a small, fast open source web browser for AmigaOS, based on <a href="https://www.netsurf-browser.org/">NetSurf</a>. Thanks for choosing Nami!</p>
-
-<form method="get" action="about:websearch">
-<div class="websearch">
-<input type="text" name="q" size="42" maxlength="255">
-<input type="submit" value="Web Search">
+<!-- Full-bleed hero: brand, one line, search — wave art is the plane -->
+<div class="hero">
+	<div class="hero-inner">
+		<h1 class="hero-brand">Nami<span class="kana">波</span></h1>
+		<p class="hero-tag">A small, fast open-source web browser for AmigaOS — riding on NetSurf.</p>
+		<form class="hero-search" method="get" action="about:websearch">
+			<input type="text" name="q" size="36" maxlength="255" title="Search the web">
+			<input type="submit" value="Search">
+		</form>
+	</div>
 </div>
-</form>
 
-<div class="links">
-<ul>
-<li><a href="https://news.bbc.co.uk/">BBC News</a></li>
-<li><a href="https://www.reuters.com/news">Reuters</a></li>
-<li><a href="https://www.cnn.com/">CNN</a></li>
+<ul class="site-nav">
+<li class="here"><a href="about:welcome">Welcome</a></li>
+<li><a href="about:guide">Guide</a></li>
+<li><a href="about:credits">Credits</a></li>
+<li><a href="about:licence">Licence</a></li>
+<li><a href="https://www.amigazen.com/nami/">amigazen.com</a></li>
 </ul>
 
-<ul>
-<li><a href="https://slashdot.org/">Slashdot</a></li>
-<li><a href="https://arstechnica.com/">Ars Technica</a></li>
-<li><a href="https://www.theregister.co.uk/">The Register</a></li>
-<li><a href="https://www.w3.org/">W3C</a></li>
-</ul>
+<div class="wave-band" title=""></div>
 
-<ul>
-<li><a href="https://en.wikipedia.org/wiki/Main_Page">Wikipedia</a></li>
-<li><a href="https://google.co.uk/">Google</a></li>
-<li><a href="https://yahoo.co.uk/">Yahoo!</a></li>
-<li><a href="https://www.imdb.com/">IMDB</a></li>
-</ul>
+<div class="page">
 
-<ul>
-<li><a href="https://www.iconbar.com/">The Icon Bar</a></li>
-<li><a href="https://www.aminet.net/">Aminet</a></li>
-<li><a href="https://www.amiga.org/">Amiga.org</a></li>
-</ul>
+<div class="section">
+	<p class="kicker">Ukiyo · floating world</p>
+	<h2 class="section-head">Wave, not AmiSomething</h2>
+	<p class="section-sub">Nami (波) means wave — a NetSurf fork for AmigaOS, printed in Great Wave blue against coral and washi.</p>
+	<ul class="feature-grid">
+		<li>
+			<h3>Native chrome</h3>
+			<p>Optional Nami UI style with in-window close, zoom and depth gadgets, AWeb-style border scrollers, and a boingball throbber.</p>
+		</li>
+		<li>
+			<h3>Light engine</h3>
+			<p>HTML and CSS from Hubbub and LibCSS — real layout without dragging a full modern stack onto classic or OS4 hardware.</p>
+		</li>
+		<li>
+			<h3>Amiga roots</h3>
+			<p>ARexx, themes, local MIME types, Workbench drag-save, and the Choices you expect from a proper Amiga browser.</p>
+		</li>
+	</ul>
+</div>
+
+<div class="section">
+	<p class="kicker">Cast off</p>
+	<h2 class="section-head">Places to go</h2>
+	<p class="section-sub">A few harbours worth bookmarking on the first voyage.</p>
+	<div class="destinations">
+		<ul>
+			<li><a href="https://news.bbc.co.uk/">BBC News</a></li>
+			<li><a href="https://www.reuters.com/news">Reuters</a></li>
+			<li><a href="https://www.cnn.com/">CNN</a></li>
+		</ul>
+		<ul>
+			<li><a href="https://slashdot.org/">Slashdot</a></li>
+			<li><a href="https://arstechnica.com/">Ars Technica</a></li>
+			<li><a href="https://www.theregister.co.uk/">The Register</a></li>
+			<li><a href="https://www.w3.org/">W3C</a></li>
+		</ul>
+		<ul>
+			<li><a href="https://en.wikipedia.org/wiki/Main_Page">Wikipedia</a></li>
+			<li><a href="https://google.co.uk/">Google</a></li>
+			<li><a href="https://www.imdb.com/">IMDB</a></li>
+		</ul>
+		<ul>
+			<li><a href="https://www.iconbar.com/">The Icon Bar</a></li>
+			<li><a href="https://www.aminet.net/">Aminet</a></li>
+			<li><a href="https://www.amiga.org/">Amiga.org</a></li>
+			<li><a href="https://www.netsurf-browser.org/">NetSurf</a></li>
+		</ul>
+	</div>
+</div>
+
+<div class="section">
+	<p class="kicker">On board</p>
+	<h2 class="section-head">Learn the ropes</h2>
+	<p>The <a href="about:guide">Nami guide</a> covers the Amiga frontend: chrome styles, tabs, themes, ARexx, fonts, and Preferences. Legal text lives on the <a href="about:licence">licence</a> page; people who made the voyage possible are on <a href="about:credits">credits</a>.</p>
+	<p class="note"><strong>Tip.</strong> Open <code>about:about</code> any time for a map of built-in pages (config, Choices, cache charts, and more).</p>
 </div>
 
 <div class="footer">
-<p>Nami is based on NetSurf and licensed under the GNU Public Licence version 2</p>
+	<p>Nami is based on NetSurf and licensed under the GNU General Public Licence version&nbsp;2 · <a href="netsurf/welcome.html">View archived NetSurf welcome page</a></p>
 </div>
+
 </div>
 
 </body>

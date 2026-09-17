@@ -130,6 +130,10 @@ void ami_openurl_open(void)
 		if((OpenURLBase = OpenLibrary("openurl.library",0))) {
 #ifdef __amigaos4__
 			IOpenURL = (struct OpenURLIFace *)GetInterface(OpenURLBase,"main",1,NULL);
+			if(IOpenURL == NULL) {
+				CloseLibrary(OpenURLBase);
+				OpenURLBase = NULL;
+			}
 #endif
 		}
 	}
@@ -141,8 +145,10 @@ void ami_openurl_close(void)
 {
 #ifdef __amigaos4__
 	if(IOpenURL) DropInterface((struct Interface *)IOpenURL);
+	IOpenURL = NULL;
 #endif
 	if(OpenURLBase) CloseLibrary(OpenURLBase);
+	OpenURLBase = NULL;
 
 	ami_openurl_free_list(ami_unsupportedprotocols);
 }
@@ -152,24 +158,55 @@ nserror gui_launch_url(struct nsurl *url)
 #ifdef __amigaos4__
 	APTR procwin = SetProcWindow((APTR)-1L);
 #endif
-	char *launchurl = NULL;
+	const char *url_s;
+	char *launchurl;
+	BPTR fptr;
+	ULONG opened;
+
+	url_s = NULL;
+	launchurl = NULL;
+	fptr = 0;
+	opened = 0;
+
+	if(url == NULL)
+		return NSERROR_BAD_PARAMETER;
+
+	url_s = nsurl_access(url);
+	if(url_s == NULL)
+		return NSERROR_BAD_PARAMETER;
 
 	if(ami_openurl_check_list(ami_unsupportedprotocols, url) == FALSE)
 	{
-		if(IOpenURL)
-		{
-			URL_OpenA((STRPTR)url,NULL);
+		/*
+		 * Prefer openurl.library.  On OS3, URL_OpenA() is called via
+		 * library stubs (OpenURLBase); IOpenURL exists only on OS4.
+		 * Never assume the OS4-only URL: launch-handler device.
+		 */
+		if(OpenURLBase != NULL
+#ifdef __amigaos4__
+		   && IOpenURL != NULL
+#endif
+		  ) {
+			opened = URL_OpenA((STRPTR)url_s, NULL);
+			if(opened == 0)
+				ami_openurl_add_protocol(url_s);
 		} else {
-			if((launchurl = ASPrintf("URL:%s", nsurl_access(url)))) {
-				BPTR fptr = Open(launchurl,MODE_OLDFILE);
-				if(fptr)
-				{
+#ifdef __amigaos4__
+			/* OS4 launch-handler fallback when openurl.library
+			 * is unavailable.  URL: is not present on OS3.
+			 */
+			if((launchurl = ASPrintf("URL:%s", url_s))) {
+				fptr = Open(launchurl, MODE_OLDFILE);
+				if(fptr) {
 					Close(fptr);
 				} else {
-					ami_openurl_add_protocol(nsurl_access(url));
+					ami_openurl_add_protocol(url_s);
 				}
 				FreeVec(launchurl);
 			}
+#else
+			ami_openurl_add_protocol(url_s);
+#endif
 		}
 	}
 #ifdef __amigaos4__

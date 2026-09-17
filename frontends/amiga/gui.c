@@ -31,6 +31,7 @@
 #include <proto/datatypes.h>
 #include <proto/diskfont.h>
 #include <proto/dos.h>
+#include <dos/rdargs.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
 #include <proto/icon.h>
@@ -61,6 +62,7 @@
 #endif
 #include <intuition/icclass.h>
 #include <intuition/imageclass.h>
+#include <intuition/gadgetclass.h>
 #include <intuition/screens.h>
 #include <libraries/gadtools.h>
 #include <workbench/workbench.h>
@@ -100,6 +102,7 @@
 
 /* newlib includes */
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -181,6 +184,20 @@
 #define SCROLL_PAGE_DOWN (INT_MAX - 1)
 #define SCROLL_BOTTOM (INT_MAX)
 
+/* Horizontal band height for yield-during-paint (IDCMP between strips) */
+#define AMI_PAINT_YIELD_STRIP 64
+
+/* Content settle coalesce vs interactive scroll/resize (ms) */
+#ifndef __amigaos4__
+#define AMI_REDRAW_CONTENT_MS 100
+#else
+#define AMI_REDRAW_CONTENT_MS 20
+#endif
+#define AMI_REDRAW_INTERACTIVE_MS 20
+
+/* Fixed gap between toolbar groups (nav | URL+info | throbber) */
+#define AMI_TB_GROUP_GAP 8
+
 /* Extra mouse button defines to match those in intuition/intuition.h */
 #define SIDEDOWN  (IECODE_4TH_BUTTON)
 #define SIDEUP    (IECODE_4TH_BUTTON | IECODE_UP_PREFIX)
@@ -218,14 +235,29 @@ enum
 	GID_ICON,
 	GID_STOP,
 	GID_STOP_BM,
+	GID_STOP_BM_G, /* AISS _g ghosted */
+	GID_STOP_BM_S, /* AISS _s selected/pressed */
+	GID_STOP_BM_H, /* AISS _h hovered */
 	GID_RELOAD,
 	GID_RELOAD_BM,
+	GID_RELOAD_BM_G,
+	GID_RELOAD_BM_S,
+	GID_RELOAD_BM_H,
 	GID_HOME,
 	GID_HOME_BM,
+	GID_HOME_BM_G,
+	GID_HOME_BM_S,
+	GID_HOME_BM_H,
 	GID_BACK,
 	GID_BACK_BM,
+	GID_BACK_BM_G,
+	GID_BACK_BM_S,
+	GID_BACK_BM_H,
 	GID_FORWARD,
 	GID_FORWARD_BM,
+	GID_FORWARD_BM_G,
+	GID_FORWARD_BM_S,
+	GID_FORWARD_BM_H,
 	GID_THROBBER,
 	GID_SEARCH_ICON,
 	GID_PAGEINFO,
@@ -239,6 +271,7 @@ enum
 	GID_FAVE_RMV,
 	GID_CLOSETAB,
 	GID_CLOSETAB_BM,
+	GID_CLOSETAB_BM_G,
 	GID_ADDTAB_HINT,
 	GID_TABS,
 	GID_TABS_FLAG,
@@ -250,6 +283,7 @@ enum
 	GID_WIN_DEPTH,
 	GID_WIN_DEPTH_BM,
 	GID_WIN_DRAG,
+	GID_CHROME_RPAD, /* Nami: room for depth overhang past SizeBRight */
 	GID_SEARCHSTRING,
 	GID_TOOLBARLAYOUT,
 	GID_HOTLIST,
@@ -259,6 +293,15 @@ enum
 	GID_HSCROLLLAYOUT,
 	GID_VSCROLL,
 	GID_VSCROLLLAYOUT,
+	/* Nami border scroll chrome (sysiclass arrows + images) */
+	GID_SCROLL_UP,
+	GID_SCROLL_DOWN,
+	GID_SCROLL_LEFT,
+	GID_SCROLL_RIGHT,
+	GID_SCROLL_UP_BM,
+	GID_SCROLL_DOWN_BM,
+	GID_SCROLL_LEFT_BM,
+	GID_SCROLL_RIGHT_BM,
 	GID_LOGLAYOUT,
 	GID_LOG,
 	GID_LAST
@@ -285,6 +328,7 @@ struct gui_window_2 {
 	ULONG oldv;
 	int temp;
 	bool redraw_scroll;
+	bool redraw_interactive; /* pending paint uses short coalesce */
 	bool new_content;
 	struct ami_menu_data *menu_data[AMI_MENU_AREXX_MAX + 1]; /* only for GadTools menus */
 	ULONG hotlist_items;
@@ -308,7 +352,6 @@ struct gui_window_2 {
 	struct Hook chrome_zoom_hook;
 	struct Hook chrome_depth_hook;
 	struct Hook chrome_drag_hook;
-	struct Hook chrome_backfill_hook; /* FILLPEN behind tabs + drag */
 	struct Hook *ctxmenu_hook;
 	Object *restrict history_ctxmenu[2];
 	Object *clicktab_ctxmenu;
@@ -325,10 +368,17 @@ struct gui_window_2 {
 	WORD chrome_armed; /* GID_WIN_* while LMB down, else 0 */
 	WORD chrome_drag_offx;
 	WORD chrome_drag_offy;
-	WORD chrome_row_h; /* sysi chrome button height; backfill strip */
+	WORD tb_hover_gid; /* Nami toolbar hover (0 = none) */
+	WORD tb_armed_gid; /* Nami toolbar pressed (0 = none) */
 	Object *throbber_led; /* led.image network blink */
 	Object *throbber_boing; /* boingball.image spinner */
 	WORD throbber_led_vals[1]; /* LED_Values array (1 pair) */
+	/* Nami: Intuition screen-title overlay (not the window drag bar) */
+	char *screentitle; /* last string passed to SetWindowTitles screen slot */
+	ULONG screentitletime; /* wall-clock second of last telemetry refresh */
+	ULONG status_screentime; /* when status was promoted into the bar; 0 = off */
+	UBYTE nami_vprop_shift; /* PGA_ scale shift for >64k extents */
+	UBYTE nami_hprop_shift;
 };
 
 struct gui_window
@@ -379,7 +429,12 @@ static BOOL locked_screen = FALSE;
 static int screen_signal = -1;
 static bool win_destroyed;
 static STRPTR nsscreentitle;
+static char ami_screentitle_buf[256];
+static struct gui_window_2 *ami_last_screentitle_gwin = NULL;
 static struct gui_globals *browserglob = NULL;
+
+/* Seconds status text may occupy the screen title before reverting to telemetry */
+#define AMI_SCREENTITLE_STATUS_SECS 3
 
 static struct MsgPort *applibport = NULL;
 static uint32 ami_appid = 0;
@@ -388,7 +443,10 @@ static ULONG rxsig = 0;
 static struct Hook newprefs_hook;
 
 static STRPTR temp_homepage_url = NULL;
-static bool cli_force = false;
+static char **cli_urls = NULL;
+static int cli_url_count = 0;
+/* -1 = use prefs ui_style; 0 = force NetSurf; 1 = force Nami (CLI/tooltype) */
+static int cli_ui_style_override = -1;
 
 #define USERS_DIR "PROGDIR:Users"
 static char *users_dir = NULL;
@@ -403,10 +461,15 @@ static void ami_switch_tab(struct gui_window_2 *gwin, bool redraw);
 static void ami_change_tab(struct gui_window_2 *gwin, int direction);
 static void ami_get_hscroll_pos(struct gui_window_2 *gwin, ULONG *xs);
 static void ami_get_vscroll_pos(struct gui_window_2 *gwin, ULONG *ys);
+static void ami_gui_scroll_viewport(struct gui_window_2 *gwin, int xs, int ys);
 static void ami_quit_netsurf_delayed(void);
 static BOOL ami_clicktab_has_close(void);
 static void ami_gui_relabel_all_tabs(struct gui_window_2 *gwin);
 static void ami_gui_nami_fix_chrome_images(struct gui_window_2 *gwin);
+static void ami_gui_nami_create_border_scrollers(struct gui_window_2 *gwin);
+static void ami_gui_nami_destroy_border_scrollers(struct gui_window_2 *gwin);
+static void ami_gui_nami_set_prop(struct gui_window_2 *gwin, Object *gad,
+		UBYTE *shift_io, ULONG total, ULONG vis, ULONG top, BOOL set_top);
 static Object *ami_gui_splash_open(void);
 static void ami_gui_splash_close(Object *win_obj);
 static bool ami_gui_map_filename(char **remapped, const char *restrict path,
@@ -414,6 +477,24 @@ static bool ami_gui_map_filename(char **remapped, const char *restrict path,
 static void ami_gui_window_update_box_deferred(struct gui_window *g, bool draw);
 static void ami_do_redraw(struct gui_window_2 *g);
 static void ami_schedule_redraw_remove(struct gui_window_2 *gwin);
+static BOOL ami_handle_msg(void);
+static void ami_gui_hotlist_toggle_from_url(struct gui_window_2 *gwin);
+static void gui_window_set_icon(struct gui_window *g, struct hlcache_handle *icon);
+
+static int ami_gui_paint_depth; /* >0 while inside ami_do_redraw_tiled */
+
+/**
+ * Drain pending window IDCMP via Reaction so resize/scroll/close stay live
+ * during long paints. Nested paints are refused (depth>1).
+ */
+static void ami_gui_yield_input(void)
+{
+	if(ami_gui_paint_depth > 1)
+		return;
+
+	/* Single pass — do not spin if a window marks closed mid-paint */
+	ami_handle_msg();
+}
 
 static bool gui_window_get_scroll(struct gui_window *g, int *restrict sx, int *restrict sy);
 static nserror gui_window_set_scroll(struct gui_window *g, const struct rect *rect);
@@ -425,8 +506,6 @@ HOOKF(uint32, ami_set_throbber_render_hook, APTR, space, struct gpRender *);
 HOOKF(uint32, ami_gui_browser_render_hook, APTR, space, struct gpRender *);
 HOOKF(uint32, ami_gui_chrome_sysi_render_hook, APTR, space, struct gpRender *);
 HOOKF(uint32, ami_gui_chrome_drag_render_hook, APTR, space, struct gpRender *);
-HOOKF(void, ami_gui_chrome_layout_backfill, struct RastPort *, rp,
-		struct BackFillMessage *);
 static BOOL ami_gui_nami_chrome_down(struct gui_window_2 *gwin);
 static BOOL ami_gui_nami_chrome_up(struct gui_window_2 *gwin, BOOL *win_closed);
 
@@ -995,23 +1074,12 @@ static void ami_gui_relabel_all_tabs(struct gui_window_2 *gwin)
 		node = GetSucc(node);
 	}
 
+	/* Text/tooltip only — skip page/layout rethink (CLICKTAB_MinorLabelChange). */
 	RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[GID_TABS],
 			gwin->win, NULL,
 			CLICKTAB_Labels, &gwin->tab_list,
 			CLICKTAB_MinorLabelChange, TRUE,
 			TAG_DONE);
-
-	/* Nami: rethink the whole window so chrome siblings stay beside tabs.
-	 * NetSurf <53: tabs-only TABLAYOUT rethink is enough. */
-	if(gwin->ui_nami) {
-		ami_gui_nami_fix_chrome_images(gwin);
-		FlushLayoutDomainCache((struct Gadget *)gwin->objects[GID_MAIN]);
-		RethinkLayout((struct Gadget *)gwin->objects[GID_MAIN],
-			gwin->win, NULL, TRUE);
-	} else if(ClickTabBase->lib_Version < 53) {
-		RethinkLayout((struct Gadget *)gwin->objects[GID_TABLAYOUT],
-			gwin->win, NULL, TRUE);
-	}
 }
 
 /* System sysiclass image for window chrome / clicktab close. */
@@ -1099,30 +1167,96 @@ static void ami_gui_chrome_fill_rect(struct RastPort *rp, struct Window *win,
 	FreeScreenDrawInfo(win->WScreen, dri);
 }
 
-/* LAYOUT_BackFill: title-bar strip only (height = chrome buttons, top-aligned). */
-HOOKF(void, ami_gui_chrome_layout_backfill, struct RastPort *, rp,
-		struct BackFillMessage *)
+/**
+ * Y just below Nami's in-layout chrome row (close/tabs/zoom/depth).
+ * Without a system DragBar, BorderTop is only a few pixels, so SizeBRight
+ * runs beside the chrome — a real title border would avoid that.
+ */
+static WORD ami_gui_nami_chrome_bottom(struct gui_window_2 *gwin)
 {
-	struct gui_window_2 *gwin;
-	struct Rectangle *bounds;
-	WORD y2;
-	WORD h;
+	struct Gadget *gad;
+	WORD bottom;
+	WORD gbottom;
 
-	gwin = (struct gui_window_2 *)hook->h_Data;
-	if(gwin == NULL || gwin->win == NULL || rp == NULL || msg == NULL)
+	if(gwin == NULL || gwin->win == NULL)
+		return 0;
+
+	bottom = gwin->win->BorderTop;
+	if(gwin->objects[GID_CHROMELAYOUT] != NULL) {
+		gad = (struct Gadget *)gwin->objects[GID_CHROMELAYOUT];
+		if(gad->Height > 0)
+			bottom = (WORD)(gad->TopEdge + gad->Height);
+	}
+	/* Border-mounted zoom/depth define the true title-bar bottom */
+	if(gwin->objects[GID_WIN_DEPTH] != NULL) {
+		gad = (struct Gadget *)gwin->objects[GID_WIN_DEPTH];
+		if(gad->Height > 0) {
+			gbottom = (WORD)(gad->TopEdge + gad->Height);
+			if(gbottom > bottom)
+				bottom = gbottom;
+		}
+	}
+	if(gwin->objects[GID_WIN_ZOOM] != NULL) {
+		gad = (struct Gadget *)gwin->objects[GID_WIN_ZOOM];
+		if(gad->Height > 0) {
+			gbottom = (WORD)(gad->TopEdge + gad->Height);
+			if(gbottom > bottom)
+				bottom = gbottom;
+		}
+	}
+	if(bottom < gwin->win->BorderTop)
+		bottom = gwin->win->BorderTop;
+	return bottom;
+}
+
+/**
+ * Cover SizeBRight fill beside the chrome so the title bar reads full-width.
+ * Always redraw depth afterwards — the fill would otherwise obscure it.
+ */
+static void ami_gui_nami_paint_chrome_rborder(struct gui_window_2 *gwin)
+{
+	struct Window *win;
+	struct Gadget *depth;
+	WORD x1, y1, x2, y2;
+	WORD br;
+	WORD dx1;
+
+	if(gwin == NULL || gwin->ui_nami == false)
+		return;
+	win = gwin->win;
+	if(win == NULL || win->RPort == NULL)
 		return;
 
-	bounds = &msg->Bounds;
-	h = gwin->chrome_row_h;
-	if(h < 1)
-		h = 16;
-	y2 = (WORD)(bounds->MinY + h - 1);
-	if(y2 > bounds->MaxY)
-		y2 = bounds->MaxY;
+	br = win->BorderRight;
+	if(br < 2)
+		return;
 
-	ami_gui_chrome_fill_rect(rp, gwin->win,
-			bounds->MinX, bounds->MinY,
-			bounds->MaxX, y2);
+	y2 = (WORD)(ami_gui_nami_chrome_bottom(gwin) - 1);
+	if(y2 < 0)
+		return;
+
+	x1 = (WORD)(win->Width - br);
+	x2 = (WORD)(win->Width - 2);
+	y1 = 0;
+
+	/* Do not paint over the depth gadget's horizontal span */
+	depth = (struct Gadget *)gwin->objects[GID_WIN_DEPTH];
+	if(depth != NULL && depth->Width > 0) {
+		dx1 = depth->LeftEdge;
+		if(dx1 <= x1) {
+			/* Depth covers the whole strip — just refresh it */
+			RefreshGList(depth, win, NULL, 1);
+			return;
+		}
+		if(dx1 <= x2)
+			x2 = (WORD)(dx1 - 1);
+	}
+
+	if(x2 >= x1)
+		ami_gui_chrome_fill_rect(win->RPort, win, x1, y1, x2, y2);
+
+	if(depth != NULL)
+		RefreshGList(depth, win, NULL, 1);
 }
 
 /* Drag strip: opaque chrome fill (title-bar colour). */
@@ -1143,6 +1277,8 @@ HOOKF(uint32, ami_gui_chrome_drag_render_hook, APTR, space, struct gpRender *)
 			gad->LeftEdge, gad->TopEdge,
 			(WORD)(gad->LeftEdge + gad->Width - 1),
 			(WORD)(gad->TopEdge + gad->Height - 1));
+	/* Keep SizeBRight strip matched to title chrome beside depth */
+	ami_gui_nami_paint_chrome_rborder(gwin);
 	return 0;
 }
 
@@ -1198,18 +1334,33 @@ HOOKF(uint32, ami_gui_chrome_sysi_render_hook, APTR, space, struct gpRender *)
 	dri = GetScreenDrawInfo(gwin->win->WScreen);
 	DrawImageState(msg->gpr_RPort, im, gad->LeftEdge, gad->TopEdge,
 			state, dri);
+	if(space == gwin->objects[GID_WIN_DEPTH])
+		ami_gui_nami_paint_chrome_rborder(gwin);
 	if(dri != NULL)
 		FreeScreenDrawInfo(gwin->win->WScreen, dri);
 	return 0;
 }
 
-/* Refresh one chrome SpaceObj after arm/disarm. */
+/* Refresh one chrome gadget after arm/disarm. */
 static void ami_gui_nami_chrome_refresh(struct gui_window_2 *gwin, WORD gid)
 {
+	BOOL selected;
+
 	if(gwin == NULL || gwin->win == NULL || gid <= 0)
 		return;
 	if(gwin->objects[gid] == NULL)
 		return;
+
+	/* Border depth is buttongclass — drive selected via GA_Selected */
+	if(gid == GID_WIN_DEPTH) {
+		selected = (gwin->chrome_armed == gid) ? TRUE : FALSE;
+		RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[gid],
+				gwin->win, NULL,
+				GA_Selected, selected,
+				TAG_DONE);
+		return;
+	}
+
 	RefreshGList((struct Gadget *)gwin->objects[gid], gwin->win, NULL, 1);
 }
 
@@ -1634,6 +1785,206 @@ STRPTR ami_gui_get_screen_title(void)
 	return nsscreentitle;
 }
 
+/**
+ * Format a memory size for the screen title (KB / MB).
+ */
+static void ami_gui_memsize_fmt(ULONG bytes, char *out, size_t outlen)
+{
+	ULONG n;
+	const char *unit;
+
+	if(bytes >= (1024UL * 1024UL)) {
+		n = bytes / (1024UL * 1024UL);
+		unit = "MB";
+	} else {
+		n = (bytes + 1023UL) / 1024UL;
+		unit = "KB";
+	}
+	snprintf(out, outlen, "%lu%s", (unsigned long)n, unit);
+}
+
+/**
+ * scheme://host for the active tab, or "-" if unknown.
+ */
+static void ami_gui_doc_origin(struct gui_window_2 *gwin, char *out, size_t outlen)
+{
+	nsurl *url = NULL;
+	lwc_string *scheme = NULL;
+	lwc_string *host = NULL;
+	const char *full;
+
+	out[0] = '-';
+	out[1] = '\0';
+	if(gwin == NULL || gwin->gw == NULL || gwin->gw->bw == NULL)
+		return;
+	if(browser_window_get_url(gwin->gw->bw, false, &url) != NSERROR_OK)
+		return;
+	if(url == NULL)
+		return;
+
+	scheme = nsurl_get_component(url, NSURL_SCHEME);
+	host = nsurl_get_component(url, NSURL_HOST);
+	if(scheme != NULL && host != NULL) {
+		snprintf(out, outlen, "%s://%s",
+			lwc_string_data(scheme), lwc_string_data(host));
+	} else {
+		full = nsurl_access(url);
+		if(full != NULL) {
+			strncpy(out, full, outlen - 1);
+			out[outlen - 1] = '\0';
+		}
+	}
+	if(scheme != NULL)
+		lwc_string_unref(scheme);
+	if(host != NULL)
+		lwc_string_unref(host);
+	nsurl_unref(url);
+}
+
+/**
+ * Build normal Nami screen-title telemetry into ami_screentitle_buf.
+ * Format: Nami <ver>  chip <n> other <n>  <origin>  <a>/<q>
+ */
+static void ami_gui_make_screentitle(struct gui_window_2 *gwin)
+{
+	char chipbuf[16];
+	char otherbuf[16];
+	char origin[96];
+	char connbuf[32];
+	ULONG chip;
+	ULONG other;
+	ULONG active;
+	ULONG queued;
+
+	chip = AvailMem(MEMF_CHIP);
+	other = AvailMem(MEMF_FAST);
+	if(other == 0)
+		other = AvailMem(MEMF_ANY);
+	ami_gui_memsize_fmt(chip, chipbuf, sizeof(chipbuf));
+	ami_gui_memsize_fmt(other, otherbuf, sizeof(otherbuf));
+	ami_gui_doc_origin(gwin, origin, sizeof(origin));
+
+	active = 0;
+	queued = 0;
+#ifdef WITH_AMIHTTP
+	fetch_amihttp_counts(&active, &queued);
+#endif
+	snprintf(connbuf, sizeof(connbuf), "%lu/%lu",
+		(unsigned long)active, (unsigned long)queued);
+
+#ifdef __amigaos4__
+	/* OS4 omits chip; Fast/other availability is the useful figure */
+	snprintf(ami_screentitle_buf, sizeof(ami_screentitle_buf),
+		"Nami %s  other %s  %s  %s",
+		netsurf_version, otherbuf, origin, connbuf);
+#else
+	snprintf(ami_screentitle_buf, sizeof(ami_screentitle_buf),
+		"Nami %s  chip %s other %s  %s  %s",
+		netsurf_version, chipbuf, otherbuf, origin, connbuf);
+#endif
+}
+
+/**
+ * Temporary status overlay for the screen title (modern/Nami layout).
+ */
+/**
+ * Rewrite TBImages:name → TBImages:list_name for AISS 16×16 list glyphs.
+ * No-op if the path is not a TBImages: reference or already uses list_.
+ */
+static void ami_gui_prefer_list_tbimage(char *path)
+{
+	char *tb;
+	char name[100];
+	size_t prefix_len;
+	size_t name_len;
+
+	if(path == NULL || path[0] == '\0')
+		return;
+
+	tb = strstr(path, "TBImages:");
+	if(tb == NULL)
+		tb = strstr(path, "TBimages:");
+	if(tb == NULL)
+		return;
+
+	prefix_len = (size_t)(tb - path) + 9; /* include TBImages: */
+	if(strncmp(path + prefix_len, "list_", 5) == 0)
+		return;
+
+	name_len = strlen(path + prefix_len);
+	if(name_len == 0 || name_len + 5 >= sizeof(name))
+		return;
+
+	strcpy(name, path + prefix_len);
+	path[prefix_len] = '\0';
+	strcat(path, "list_");
+	strcat(path, name);
+}
+
+static void ami_gui_make_status_screentitle(struct gui_window_2 *gwin)
+{
+	const char *st;
+
+	st = gwin->status;
+	if(st == NULL)
+		st = "";
+	snprintf(ami_screentitle_buf, sizeof(ami_screentitle_buf),
+		"Nami %s  %s", netsurf_version, st);
+}
+
+/**
+ * Apply dynamic screen title while a Nami window is active.
+ * Uses SetWindowTitles(win, ~0, stitle) so the window drag-bar title is untouched.
+ */
+static void ami_gui_update_screentitle(struct gui_window_2 *gwin)
+{
+	ULONG secs;
+	ULONG micros;
+	BOOL showstatus;
+	char *copy;
+
+	if(gwin == NULL || gwin->win == NULL || gwin->ui_nami == false)
+		return;
+
+	CurrentTime(&secs, &micros);
+
+	showstatus = FALSE;
+	if(gwin->status_screentime != 0 &&
+	   (secs - gwin->status_screentime) < AMI_SCREENTITLE_STATUS_SECS &&
+	   gwin->status != NULL && gwin->status[0] != '\0') {
+		showstatus = TRUE;
+	} else if(gwin->status_screentime != 0 &&
+		  (secs - gwin->status_screentime) >= AMI_SCREENTITLE_STATUS_SECS) {
+		gwin->status_screentime = 0;
+	}
+
+	/* Throttle normal telemetry to about once per second */
+	if(showstatus == FALSE) {
+		if(gwin->screentitletime == secs &&
+		   ami_last_screentitle_gwin == gwin)
+			return;
+	}
+
+	if(showstatus)
+		ami_gui_make_status_screentitle(gwin);
+	else
+		ami_gui_make_screentitle(gwin);
+
+	if(ami_last_screentitle_gwin != gwin ||
+	   gwin->screentitle == NULL ||
+	   strcmp(gwin->screentitle, ami_screentitle_buf) != 0) {
+		SetWindowTitles(gwin->win, (STRPTR)~0, ami_screentitle_buf);
+		if(gwin->screentitle)
+			free(gwin->screentitle);
+		copy = strdup(ami_screentitle_buf);
+		gwin->screentitle = copy;
+		ami_last_screentitle_gwin = gwin;
+	}
+
+	if(showstatus == FALSE)
+		gwin->screentitletime = secs;
+}
+
 static void ami_set_screen_defaults(struct Screen *screen)
 {
 #ifdef __amigaos4__
@@ -1737,6 +2088,11 @@ static nserror ami_set_options(struct nsoption_s *defaults)
 	nsoption_set_int(max_fetchers, 8);
 	nsoption_set_int(max_fetchers_per_host, 2);
 	nsoption_set_int(max_cached_fetch_handles, 2);
+	/*
+	 * Keep Remapped native BitMaps (All). Scaled plots BitScale from the
+	 * full-size cache instead of re-running picture.datatype PROCLAYOUT.
+	 */
+	nsoption_set_int(cache_bitmaps, 2);
 #endif
 
 	/* Always Preferences / WA_PointerType — no theme custom pointers. */
@@ -1942,103 +2298,354 @@ static void ami_openscreenfirst(void)
 	NSLOG(netsurf, INFO, "ami_openscreenfirst: done");
 }
 
-static char **ami_gui_commandline(int *restrict argc, char ** argv,
-		int *restrict nargc, char ** nargv)
+/**
+ * True if this argv word must be quoted for ReadArgs.
+ *
+ * Quoted items are never matched as /S or /K keywords — so NAMI, NETSURF,
+ * and USERSDIR=… must stay unquoted.  Quote when whitespace or ReadItem
+ * delimiters would split the token (space, ';', quotes, '*', or '=' that
+ * is not a known KEYWORD=value).
+ */
+static int ami_gui_rdargs_needs_quotes(const char *arg)
 {
-	struct RDArgs *args;
-	CONST_STRPTR template = "-v/S,NSOPTS/M,URL/K,USERSDIR/K,FORCE/S";
-	long rarray[] = {0,0,0,0,0};
-	enum
-	{
-		A_VERBOSE, /* ignored */
-		A_NSOPTS, /* ignored */
-		A_URL,
-		A_USERSDIR,
-		A_FORCE
-	};
+	const char *p;
+	const char *eq;
 
-	if(*argc == 0) return NULL; // argc==0 is started from wb
+	if(arg == NULL || *arg == '\0')
+		return 1;
 
-	if((args = ReadArgs(template, rarray, NULL))) {
-		if(rarray[A_URL]) {
-			NSLOG(netsurf, INFO,
-			      "URL %s specified on command line",
-			      (char *)rarray[A_URL]);
-			temp_homepage_url = strdup((char *)rarray[A_URL]); /**\todo allow IDNs */
-		}
-
-		if(rarray[A_USERSDIR]) {
-			NSLOG(netsurf, INFO,
-			      "USERSDIR %s specified on command line",
-			      (char *)rarray[A_USERSDIR]);
-			users_dir = ASPrintf("%s", rarray[A_USERSDIR]);
-		}
-
-		if(rarray[A_FORCE]) {
-			NSLOG(netsurf, INFO,
-			      "FORCE specified on command line");
-			cli_force = true;
-		}
-
-		if(rarray[A_NSOPTS]) {
-		/* The NSOPTS/M parameter specified in the ReadArgs template is
-		 * special. The /M means it collects all arguments that can't
-		 * be assigned to any other parameter, and stores them in an
-		 * array.  We collect these and pass them as a fake argc/argv
-		 * to nsoption_commandline().
-		 * This trickery is necessary because if ReadArgs() is called
-		 * first, nsoption_commandline() can no longer parse (fetch?)
-		 * the arguments.  If nsoption_commandline() is called first,
-		 * then ReadArgs cannot fetch the arguments.
-		 */
-			char **nsopts = (char **)rarray[A_NSOPTS];
-			int i = 0;
-			int opts = 0;
-
-			/* Count the number of args */
-			do {
-				NSLOG(netsurf, INFO,
-			      "NSOPTS/M %d = %s", opts, nsopts[i]);
-				opts++;
-				i++;
-			} while(nsopts[i]);
-			
-			opts = i + 1;
-			NSLOG(netsurf, INFO, "Core option count: %d (+1 for command)", opts);
-			
-			/* Allocate a new array and copy to it */
-			char **fakeargs = malloc((opts + 1) * sizeof(char *));
-			if(fakeargs == NULL) {
-				NSLOG(netsurf, WARNING, "Unable to allocate memory fir fake args array");
-				return NULL;
-			}
-
-			/* Arg 0 is the command itself */
-			fakeargs[0] = strdup("Nami");
-
-			i = 0;
-
-			do {
-				fakeargs[i+1] = strdup(nsopts[i]);
-				NSLOG(netsurf, INFO,
-					"OPT %d: %s", i+1, fakeargs[i+1]);
-				i++;
-			} while(nsopts[i]);
-			
-			fakeargs[i+1] = NULL;
-
-			*nargc = opts;
-			*nargv = fakeargs;
-			
-			FreeArgs(args);
-			return fakeargs;
-		}
-	} else {
-		NSLOG(netsurf, INFO, "ReadArgs failed to parse command line");
+	/* Bare template keywords / switches / help — never quote */
+	if(strcasecmp(arg, "NAMI") == 0 ||
+	   strcasecmp(arg, "NETSURF") == 0 ||
+	   strcasecmp(arg, "URL") == 0 ||
+	   strcasecmp(arg, "USER") == 0 ||
+	   strcasecmp(arg, "USERSDIR") == 0 ||
+	   strcmp(arg, "?") == 0) {
+		return 0;
 	}
 
-	FreeArgs(args);
-	return NULL;
+	eq = strchr(arg, '=');
+	if(eq != NULL && eq > arg) {
+		/* USER=… / USERSDIR=… stay unquoted so /K matches */
+		if((eq - arg == 4 && strncasecmp(arg, "USER", 4) == 0) ||
+		   (eq - arg == 8 && strncasecmp(arg, "USERSDIR", 8) == 0)) {
+			/* still quote if value has whitespace */
+			for(p = eq + 1; *p != '\0'; p++) {
+				if(*p == ' ' || *p == '\t' || *p == '"' ||
+				   *p == '*' || *p == ';' || *p == '\n')
+					return 1;
+			}
+			return 0;
+		}
+		/* URL query or other '=' — quote so ReadItem does not split */
+		return 1;
+	}
+
+	for(p = arg; *p != '\0'; p++) {
+		if(*p == ' ' || *p == '\t' || *p == '"' ||
+		   *p == '*' || *p == ';' || *p == '\n')
+			return 1;
+	}
+	return 0;
+}
+
+/**
+ * Append one argv word to a ReadArgs RDA_Source buffer.
+ * Quotes only when needed (see ami_gui_rdargs_needs_quotes).
+ * Inside quotes, '*' escapes '*' and '"'.
+ */
+static int ami_gui_rdargs_append_arg(char *buf, int buflen, int used,
+		const char *arg)
+{
+	int need;
+	int quote;
+	const char *p;
+	char *out;
+
+	if(buf == NULL || arg == NULL || used < 0 || used >= buflen)
+		return -1;
+
+	quote = ami_gui_rdargs_needs_quotes(arg);
+
+	need = used;
+	if(used > 0)
+		need++; /* separating space */
+	if(quote)
+		need += 2;
+	for(p = arg; *p != '\0'; p++) {
+		need++;
+		if(quote && (*p == '*' || *p == '"'))
+			need++;
+	}
+	need++; /* NUL */
+	if(need > buflen)
+		return -1;
+
+	out = buf + used;
+	if(used > 0) {
+		*out++ = ' ';
+		used++;
+	}
+	if(quote) {
+		*out++ = '"';
+		used++;
+	}
+	for(p = arg; *p != '\0'; p++) {
+		if(quote && (*p == '*' || *p == '"')) {
+			*out++ = '*';
+			used++;
+		}
+		*out++ = *p;
+		used++;
+	}
+	if(quote) {
+		*out++ = '"';
+		used++;
+	}
+	*out = '\0';
+	return used;
+}
+
+/* Set when Shell "Nami ?" printed usage — main exits without opening UI */
+static int cli_rdargs_help_done = 0;
+
+/**
+ * Parse Shell command line via ReadArgs.
+ *
+ * Amiga template (dos.library/ReadArgs):
+ *   NAMI/S,NETSURF/S,USER=USERSDIR/K,URL/M
+ * so e.g.
+ *   Nami https://example.com
+ *   Nami NAMI https://a.com
+ *   Nami NETSURF Work:Docs/file.html
+ *   Nami USERSDIR=RAM: Work:Docs/file.html
+ *   Nami ?
+ *
+ * Switches/keywords stay unquoted in the rebuilt line so ReadArgs can
+ * match them; URL/M absorbs everything else.  "Nami ?" prints the
+ * template (RDAF_NOPROMPT + custom RDA_Source cannot do interactive ?).
+ *
+ * NAMI/NETSURF force ui_style for this run only (override Prefs).
+ *
+ * --option=value core options are peeled off first and returned for
+ * nsoption_commandline().  ReadArgs is fed a rebuilt argv string
+ * (RDA_Source) because Input() has already been consumed by C startup.
+ * RDArgs comes from AllocDosObject(DOS_RDARGS) per dos.doc.
+ */
+static char **ami_gui_commandline(int *restrict argc, char **argv,
+		int *restrict nargc, char ***restrict nargv)
+{
+	struct RDArgs *rdargs;
+	struct RDArgs *args;
+	/* Switches before /M so keywords match before leftover strings */
+	CONST_STRPTR template = "NAMI/S,NETSURF/S,USER=USERSDIR/K,URL/M";
+	LONG rarray[4];
+	enum {
+		A_NAMI = 0,
+		A_NETSURF,
+		A_USERSDIR,
+		A_URL
+	};
+	char *buf;
+	char **urls;
+	char **optv;
+	int i;
+	int len;
+	int used;
+	int optc;
+	int opti;
+	int urli;
+	int n;
+	int want_help;
+
+	rdargs = NULL;
+	args = NULL;
+	buf = NULL;
+	urls = NULL;
+	optv = NULL;
+	want_help = 0;
+
+	if(nargc != NULL)
+		*nargc = 0;
+	if(nargv != NULL)
+		*nargv = NULL;
+
+	if(argc == NULL || *argc == 0)
+		return NULL; /* Workbench: argv is WBStartup * */
+
+	/* Peel GNU-style --options for nsoption_commandline() */
+	optc = 1;
+	for(i = 1; i < *argc; i++) {
+		if(argv[i] != NULL && argv[i][0] == '-' && argv[i][1] == '-')
+			optc++;
+	}
+	if(optc > 1 && nargv != NULL) {
+		optv = malloc((size_t)(optc + 1) * sizeof(char *));
+		if(optv == NULL)
+			return NULL;
+		optv[0] = strdup("Nami");
+		opti = 1;
+		for(i = 1; i < *argc; i++) {
+			if(argv[i] != NULL && argv[i][0] == '-' &&
+			   argv[i][1] == '-') {
+				optv[opti] = strdup(argv[i]);
+				opti++;
+			}
+		}
+		optv[opti] = NULL;
+		if(nargc != NULL)
+			*nargc = optc;
+		*nargv = optv;
+	}
+
+	/* Shell "Nami ?" — print usage (cannot use ReadArgs ? with RDA_Source) */
+	for(i = 1; i < *argc; i++) {
+		if(argv[i] == NULL)
+			continue;
+		if(argv[i][0] == '-' && argv[i][1] == '-')
+			continue;
+		if(strcmp(argv[i], "?") == 0)
+			want_help = 1;
+	}
+	if(want_help) {
+		Printf((STRPTR)"%s\n", (STRPTR)template);
+		Printf((STRPTR)"  NAMI/S      Force Nami UI for this launch\n");
+		Printf((STRPTR)"  NETSURF/S   Force NetSurf UI for this launch\n");
+		Printf((STRPTR)"  USERSDIR/K  Users drawer (USER= alias)\n");
+		Printf((STRPTR)"  URL/M       One or more URLs or Amiga paths\n");
+		cli_rdargs_help_done = 1;
+		return optv;
+	}
+
+	/*
+	 * Rebuild remaining args for ReadArgs.  Quote only when needed so
+	 * NAMI/NETSURF/USERSDIR= stay unquoted keywords.  Buffer must end
+	 * with a newline (dos.doc BUGS, V37 and before).
+	 */
+	len = 4;
+	for(i = 1; i < *argc; i++) {
+		if(argv[i] == NULL)
+			continue;
+		if(argv[i][0] == '-' && argv[i][1] == '-')
+			continue;
+		len += (int)(strlen(argv[i]) * 2) + 4;
+	}
+	buf = malloc((size_t)len);
+	if(buf == NULL)
+		return optv;
+
+	buf[0] = '\0';
+	used = 0;
+	for(i = 1; i < *argc; i++) {
+		if(argv[i] == NULL)
+			continue;
+		if(argv[i][0] == '-' && argv[i][1] == '-')
+			continue;
+		n = ami_gui_rdargs_append_arg(buf, len, used, argv[i]);
+		if(n < 0) {
+			NSLOG(netsurf, WARNING,
+			      "ReadArgs line buffer overflow");
+			free(buf);
+			return optv;
+		}
+		used = n;
+	}
+	if(used + 2 > len) {
+		free(buf);
+		return optv;
+	}
+	buf[used++] = '\n';
+	buf[used] = '\0';
+
+	NSLOG(netsurf, INFO, "ReadArgs line: %s", buf);
+
+	/* dos.doc: AllocDosObject must be used when passing an RDArgs in */
+	rdargs = AllocDosObject(DOS_RDARGS, NULL);
+	if(rdargs == NULL) {
+		NSLOG(netsurf, WARNING, "AllocDosObject(DOS_RDARGS) failed");
+		free(buf);
+		return optv;
+	}
+
+	rdargs->RDA_Source.CS_Buffer = buf;
+	rdargs->RDA_Source.CS_Length = (LONG)used;
+	rdargs->RDA_Source.CS_CurChr = 0;
+	rdargs->RDA_DAList = 0;
+	rdargs->RDA_Buffer = NULL;
+	rdargs->RDA_BufSiz = 0;
+	rdargs->RDA_ExtHelp = NULL;
+	/* Custom RDA_Source: no interactive ? prompt (handled above) */
+	rdargs->RDA_Flags = RDAF_NOPROMPT;
+
+	rarray[A_NAMI] = 0;
+	rarray[A_NETSURF] = 0;
+	rarray[A_USERSDIR] = 0;
+	rarray[A_URL] = 0;
+
+	args = ReadArgs((STRPTR)template, rarray, rdargs);
+	if(args == NULL) {
+		NSLOG(netsurf, WARNING,
+		      "ReadArgs failed (template \"%s\" line \"%s\") IoErr=%ld",
+		      template, buf, (long)IoErr());
+		PrintFault(IoErr(), (STRPTR)"Nami");
+		FreeArgs(rdargs);
+		FreeDosObject(DOS_RDARGS, rdargs);
+		free(buf);
+		return optv;
+	}
+
+	if(rarray[A_USERSDIR]) {
+		NSLOG(netsurf, INFO, "USERSDIR %s specified on command line",
+		      (char *)rarray[A_USERSDIR]);
+		if(users_dir != NULL)
+			FreeVec(users_dir);
+		users_dir = ASPrintf("%s", (char *)rarray[A_USERSDIR]);
+	}
+
+	/* Force UI chrome for this launch only (Prefs ui_style unchanged on disk) */
+	if(rarray[A_NAMI] != 0 && rarray[A_NETSURF] != 0) {
+		NSLOG(netsurf, WARNING,
+		      "NAMI and NETSURF both set; using NAMI");
+		cli_ui_style_override = 1;
+	} else if(rarray[A_NAMI] != 0) {
+		cli_ui_style_override = 1;
+		NSLOG(netsurf, INFO, "CLI override: Nami UI");
+	} else if(rarray[A_NETSURF] != 0) {
+		cli_ui_style_override = 0;
+		NSLOG(netsurf, INFO, "CLI override: NetSurf UI");
+	}
+
+	urls = (char **)rarray[A_URL];
+	if(urls != NULL) {
+		urli = 0;
+		while(urls[urli] != NULL)
+			urli++;
+		if(urli > 0) {
+			cli_urls = malloc((size_t)(urli + 1) * sizeof(char *));
+			if(cli_urls != NULL) {
+				cli_url_count = 0;
+				for(i = 0; i < urli; i++) {
+					cli_urls[cli_url_count] = strdup(urls[i]);
+					if(cli_urls[cli_url_count] != NULL) {
+						NSLOG(netsurf, INFO,
+						      "URL[%d] %s",
+						      cli_url_count,
+						      cli_urls[cli_url_count]);
+						cli_url_count++;
+					}
+				}
+				cli_urls[cli_url_count] = NULL;
+				/* ARexx re-open path still uses temp_homepage_url */
+				if(cli_url_count > 0 && temp_homepage_url == NULL)
+					temp_homepage_url = strdup(cli_urls[0]);
+			}
+		}
+	}
+
+	FreeArgs(rdargs);
+	FreeDosObject(DOS_RDARGS, rdargs);
+	free(buf);
+	return optv;
 }
 
 static char *ami_gui_read_tooltypes(struct WBArg *wbarg)
@@ -2053,6 +2660,15 @@ static char *ami_gui_read_tooltypes(struct WBArg *wbarg)
 
 		if((s = (char *)FindToolType(toolarray,"USERSDIR"))) users_dir = ASPrintf("%s", s);
 		if((s = (char *)FindToolType(toolarray,"USER"))) current_user = ASPrintf("%s", s);
+		/* Force UI for this launch (same as Shell NAMI/NETSURF switches) */
+		if(FindToolType(toolarray, "NAMI") != NULL &&
+		   FindToolType(toolarray, "NETSURF") != NULL) {
+			cli_ui_style_override = 1; /* NAMI wins, as on Shell */
+		} else if(FindToolType(toolarray, "NAMI") != NULL) {
+			cli_ui_style_override = 1;
+		} else if(FindToolType(toolarray, "NETSURF") != NULL) {
+			cli_ui_style_override = 0;
+		}
 
 		FreeDiskObject(dobj);
 	}
@@ -2116,11 +2732,39 @@ static void gui_init2(int argc, char** argv)
 	    (nsoption_bool(startup_no_window) == false))
 		ami_openscreenfirst();
 
-	if(cli_force == true) {
-		notalreadyrunning = TRUE;
-	}
+	/* Shell URLs from ReadArgs URL/M */
+	if(cli_url_count > 0 && notalreadyrunning) {
+		int i;
+		int first = 0;
 
-	if(temp_homepage_url && notalreadyrunning) {
+		for(i = 0; i < cli_url_count; i++) {
+			error = ami_string_to_nsurl(cli_urls[i], &url);
+			if(error == NSERROR_OK) {
+				if(first == 0) {
+					error = browser_window_create(BW_CREATE_HISTORY,
+							url, NULL, NULL, &bw);
+					first = 1;
+				} else {
+					error = browser_window_create(
+							BW_CREATE_CLONE | BW_CREATE_HISTORY,
+							url, NULL, bw, &bw);
+				}
+				nsurl_unref(url);
+			}
+			if(error != NSERROR_OK) {
+				amiga_warn_user(messages_get_errorcode(error), 0);
+			}
+			free(cli_urls[i]);
+			cli_urls[i] = NULL;
+		}
+		free(cli_urls);
+		cli_urls = NULL;
+		cli_url_count = 0;
+		if(temp_homepage_url != NULL) {
+			free(temp_homepage_url);
+			temp_homepage_url = NULL;
+		}
+	} else if(temp_homepage_url && notalreadyrunning) {
 		error = nsurl_create(temp_homepage_url, &url);
 		if (error == NSERROR_OK) {
 			error = browser_window_create(BW_CREATE_HISTORY,
@@ -2202,23 +2846,52 @@ static void gui_init2(int argc, char** argv)
 	if(!notalreadyrunning)
 	{
 		STRPTR sendcmd = NULL;
-		char newtab[11] = "\0";
+		char newtab[11];
+		int i;
 
-		if(nsoption_bool(tab_new_session) == true) {
+		/* Hand off to the running instance via ARexx OPEN … NEW/NEWTAB */
+		newtab[0] = '\0';
+		if(nsoption_bool(tab_new_session) == true)
 			strcpy(newtab, "TAB ACTIVE");
-		}
 
-		if(temp_homepage_url) {
-			sendcmd = ASPrintf("OPEN \"%s\" NEW%s", temp_homepage_url, newtab);
+		if(cli_url_count > 0) {
+			for(i = 0; i < cli_url_count; i++) {
+				sendcmd = ASPrintf("OPEN \"%s\" NEW%s",
+						cli_urls[i], newtab);
+				if(sendcmd != NULL) {
+					ami_arexx_self(sendcmd);
+					FreeVec(sendcmd);
+				}
+				free(cli_urls[i]);
+				cli_urls[i] = NULL;
+			}
+			free(cli_urls);
+			cli_urls = NULL;
+			cli_url_count = 0;
+			if(temp_homepage_url != NULL) {
+				free(temp_homepage_url);
+				temp_homepage_url = NULL;
+			}
+		} else if(temp_homepage_url != NULL) {
+			sendcmd = ASPrintf("OPEN \"%s\" NEW%s",
+					temp_homepage_url, newtab);
 			free(temp_homepage_url);
 			temp_homepage_url = NULL;
+			if(sendcmd != NULL) {
+				ami_arexx_self(sendcmd);
+				FreeVec(sendcmd);
+			}
 		} else {
-			sendcmd = ASPrintf("OPEN \"%s\" NEW%s", nsoption_charp(homepage_url), newtab);
+			/* No URL: open homepage in a new window/tab (same as
+			 * first launch with no args), then bring to front. */
+			sendcmd = ASPrintf("OPEN \"%s\" NEW%s",
+					nsoption_charp(homepage_url), newtab);
+			if(sendcmd != NULL) {
+				ami_arexx_self(sendcmd);
+				FreeVec(sendcmd);
+			}
 		}
-		ami_arexx_self(sendcmd);
-		FreeVec(sendcmd);
 
-		/* Bring the screen to the front. Intuition may have already done this, but it doesn't hurt. */
 		ami_arexx_self("TOFRONT");
 
 		ami_quit=true;
@@ -2278,6 +2951,316 @@ static void gui_init2(int argc, char** argv)
 	}
 }
 
+/**
+ * True if status text is the content "Done (n.ns)" completion message.
+ * Nami keeps telemetry in the screen title and skips this flash.
+ */
+static BOOL ami_gui_status_is_done(const char *text)
+{
+	const char *done;
+	size_t len;
+
+	if(text == NULL || text[0] == '\0')
+		return FALSE;
+	done = messages_get("Done");
+	if(done == NULL || done[0] == '\0')
+		return FALSE;
+	len = strlen(done);
+	if(strncmp(text, done, len) != 0)
+		return FALSE;
+	if(text[len] == '\0' || text[len] == ' ' || text[len] == '(')
+		return TRUE;
+	return FALSE;
+}
+
+/**
+ * Build AISS-style variant path: TBImages:nav_west + "_h" → …:nav_west_h
+ * or file.png → file_h.png.
+ */
+static void ami_gui_path_aiss_suffix(char *dst, size_t dstsz,
+		const char *src, const char *suffix)
+{
+	const char *slash;
+	const char *colon;
+	const char *base;
+	const char *dot;
+	size_t prefix_len;
+	size_t suffix_len;
+	size_t ext_len;
+
+	if(dst == NULL || dstsz == 0)
+		return;
+	dst[0] = '\0';
+	if(src == NULL || src[0] == '\0' || suffix == NULL)
+		return;
+
+	slash = strrchr(src, '/');
+	colon = strrchr(src, ':');
+	base = src;
+	if(slash != NULL && slash + 1 > base)
+		base = slash + 1;
+	if(colon != NULL && colon + 1 > base)
+		base = colon + 1;
+	dot = strrchr(base, '.');
+	if(dot != NULL)
+		prefix_len = (size_t)(dot - src);
+	else
+		prefix_len = strlen(src);
+	suffix_len = strlen(suffix);
+	ext_len = (dot != NULL) ? strlen(dot) : 0;
+	if(prefix_len + suffix_len + ext_len + 1 > dstsz)
+		return;
+	memcpy(dst, src, prefix_len);
+	memcpy(dst + prefix_len, suffix, suffix_len);
+	if(dot != NULL)
+		memcpy(dst + prefix_len + suffix_len, dot, ext_len);
+	dst[prefix_len + suffix_len + ext_len] = '\0';
+}
+
+/**
+ * Toolbar icon enable/disable + Nami hover/press art.
+ * OS3 bitmap.image has no Disabled/Hover source tags; we swap
+ * BUTTON_RenderImage among normal / _s / _h / _g BitMapObjs.
+ * Idle: no bevel. Pressed: recessed BVS_FIELD (not raised, no blue fill).
+ */
+static void ami_gui_tb_apply_nami_button(struct gui_window_2 *gwin, ULONG gid,
+		ULONG bm_normal, ULONG bm_sel, ULONG bm_hov, ULONG bm_ghost,
+		BOOL ghosted)
+{
+	Object *bm;
+	ULONG bevel;
+
+	if(gwin == NULL || gwin->objects[gid] == NULL)
+		return;
+
+	bm = gwin->objects[bm_normal];
+	bevel = BVS_NONE;
+
+	if(ghosted) {
+		if(gwin->objects[bm_ghost] != NULL)
+			bm = gwin->objects[bm_ghost];
+	} else if(gwin->tb_armed_gid == (WORD)gid) {
+		bevel = BVS_FIELD;
+		if(gwin->objects[bm_sel] != NULL)
+			bm = gwin->objects[bm_sel];
+	} else if(gwin->tb_hover_gid == (WORD)gid) {
+		if(gwin->objects[bm_hov] != NULL)
+			bm = gwin->objects[bm_hov];
+	}
+
+	RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[gid],
+			gwin->win, NULL,
+			BUTTON_RenderImage, bm,
+			BUTTON_BevelStyle, bevel,
+			BUTTON_Transparent, TRUE,
+			GA_Selected, FALSE,
+			GA_ReadOnly, ghosted ? TRUE : FALSE,
+			GA_Disabled, FALSE,
+			TAG_DONE);
+}
+
+static void ami_gui_tb_set_ghosted(struct gui_window_2 *gwin, ULONG gid,
+		ULONG bm_normal, ULONG bm_ghost, BOOL ghosted)
+{
+	ULONG bm_sel;
+	ULONG bm_hov;
+
+	if(gwin == NULL || gwin->objects[gid] == NULL)
+		return;
+
+	if(gwin->ui_nami == false) {
+		Object *bm;
+
+		bm = gwin->objects[bm_normal];
+		if(ghosted && gwin->objects[bm_ghost] != NULL)
+			bm = gwin->objects[bm_ghost];
+		RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[gid],
+				gwin->win, NULL,
+				BUTTON_RenderImage, bm,
+				GA_ReadOnly, ghosted ? TRUE : FALSE,
+				GA_Disabled, FALSE,
+				TAG_DONE);
+		return;
+	}
+
+	bm_sel = 0;
+	bm_hov = 0;
+	if(bm_normal == GID_BACK_BM) {
+		bm_sel = GID_BACK_BM_S;
+		bm_hov = GID_BACK_BM_H;
+	} else if(bm_normal == GID_FORWARD_BM) {
+		bm_sel = GID_FORWARD_BM_S;
+		bm_hov = GID_FORWARD_BM_H;
+	} else if(bm_normal == GID_STOP_BM) {
+		bm_sel = GID_STOP_BM_S;
+		bm_hov = GID_STOP_BM_H;
+	} else if(bm_normal == GID_RELOAD_BM) {
+		bm_sel = GID_RELOAD_BM_S;
+		bm_hov = GID_RELOAD_BM_H;
+	} else if(bm_normal == GID_HOME_BM) {
+		bm_sel = GID_HOME_BM_S;
+		bm_hov = GID_HOME_BM_H;
+	}
+
+	if(ghosted) {
+		if(gwin->tb_hover_gid == (WORD)gid)
+			gwin->tb_hover_gid = 0;
+		if(gwin->tb_armed_gid == (WORD)gid)
+			gwin->tb_armed_gid = 0;
+	}
+
+	ami_gui_tb_apply_nami_button(gwin, gid, bm_normal, bm_sel, bm_hov,
+			bm_ghost, ghosted);
+}
+
+static BOOL ami_gui_tb_gid_readonly(struct gui_window_2 *gwin, ULONG gid)
+{
+	ULONG ro;
+
+	ro = FALSE;
+	if(gwin->objects[gid] == NULL)
+		return TRUE;
+	GetAttr(GA_ReadOnly, gwin->objects[gid], &ro);
+	return ro ? TRUE : FALSE;
+}
+
+static WORD ami_gui_tb_hit(struct gui_window_2 *gwin)
+{
+	LONG mx, my;
+
+	if(gwin == NULL || gwin->ui_nami == false || gwin->win == NULL)
+		return 0;
+
+	mx = gwin->win->MouseX;
+	my = gwin->win->MouseY;
+
+	if(gwin->objects[GID_BACK] != NULL &&
+	   ami_gui_tb_gid_readonly(gwin, GID_BACK) == FALSE &&
+	   ami_gadget_hit(gwin->objects[GID_BACK], mx, my))
+		return GID_BACK;
+	if(gwin->objects[GID_FORWARD] != NULL &&
+	   ami_gui_tb_gid_readonly(gwin, GID_FORWARD) == FALSE &&
+	   ami_gadget_hit(gwin->objects[GID_FORWARD], mx, my))
+		return GID_FORWARD;
+	if(gwin->objects[GID_STOP] != NULL &&
+	   ami_gui_tb_gid_readonly(gwin, GID_STOP) == FALSE &&
+	   ami_gadget_hit(gwin->objects[GID_STOP], mx, my))
+		return GID_STOP;
+	if(gwin->objects[GID_RELOAD] != NULL &&
+	   ami_gui_tb_gid_readonly(gwin, GID_RELOAD) == FALSE &&
+	   ami_gadget_hit(gwin->objects[GID_RELOAD], mx, my))
+		return GID_RELOAD;
+	if(gwin->objects[GID_PAGEINFO] != NULL &&
+	   ami_gadget_hit(gwin->objects[GID_PAGEINFO], mx, my))
+		return GID_PAGEINFO;
+	if(gwin->objects[GID_ICON] != NULL &&
+	   ami_gadget_hit(gwin->objects[GID_ICON], mx, my))
+		return GID_ICON;
+	return 0;
+}
+
+static void ami_gui_tb_refresh_gid(struct gui_window_2 *gwin, WORD gid)
+{
+	BOOL ghosted;
+	ULONG bevel;
+
+	if(gwin == NULL || gid == 0)
+		return;
+
+	ghosted = ami_gui_tb_gid_readonly(gwin, gid);
+
+	switch(gid) {
+	case GID_BACK:
+		ami_gui_tb_apply_nami_button(gwin, GID_BACK, GID_BACK_BM,
+				GID_BACK_BM_S, GID_BACK_BM_H, GID_BACK_BM_G, ghosted);
+		break;
+	case GID_FORWARD:
+		ami_gui_tb_apply_nami_button(gwin, GID_FORWARD, GID_FORWARD_BM,
+				GID_FORWARD_BM_S, GID_FORWARD_BM_H, GID_FORWARD_BM_G,
+				ghosted);
+		break;
+	case GID_STOP:
+		ami_gui_tb_apply_nami_button(gwin, GID_STOP, GID_STOP_BM,
+				GID_STOP_BM_S, GID_STOP_BM_H, GID_STOP_BM_G, ghosted);
+		break;
+	case GID_RELOAD:
+		/* May show Stop or Reload art — ami_update_buttons sets image ids;
+		 * re-query RenderImage owner via ghost helper using reload slot's
+		 * current ReadOnly and whichever BM was last applied. Prefer reload
+		 * set; Stop-in-reload-slot still uses STOP_* when loading. */
+		{
+			ULONG stop_avail;
+
+			stop_avail = FALSE;
+			if(gwin->gw != NULL && gwin->gw->bw != NULL &&
+			   browser_window_stop_available(gwin->gw->bw))
+				stop_avail = TRUE;
+			if(stop_avail) {
+				ami_gui_tb_apply_nami_button(gwin, GID_RELOAD, GID_STOP_BM,
+						GID_STOP_BM_S, GID_STOP_BM_H, GID_STOP_BM_G,
+						FALSE);
+			} else {
+				ami_gui_tb_apply_nami_button(gwin, GID_RELOAD, GID_RELOAD_BM,
+						GID_RELOAD_BM_S, GID_RELOAD_BM_H, GID_RELOAD_BM_G,
+						ghosted);
+			}
+		}
+		break;
+	case GID_PAGEINFO:
+		bevel = (gwin->tb_armed_gid == GID_PAGEINFO) ? BVS_FIELD : BVS_NONE;
+		RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[GID_PAGEINFO],
+				gwin->win, NULL,
+				BUTTON_BevelStyle, bevel,
+				BUTTON_Transparent, TRUE,
+				GA_Selected, FALSE,
+				TAG_DONE);
+		break;
+	case GID_ICON:
+		bevel = (gwin->tb_armed_gid == GID_ICON) ? BVS_FIELD : BVS_NONE;
+		RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[GID_ICON],
+				gwin->win, NULL,
+				SPACE_BevelStyle, bevel,
+				TAG_DONE);
+		if(bevel == BVS_NONE && gwin->gw != NULL)
+			gui_window_set_icon(gwin->gw, gwin->gw->favicon);
+		break;
+	default:
+		break;
+	}
+}
+
+static void ami_gui_tb_set_hover(struct gui_window_2 *gwin, WORD gid)
+{
+	WORD prev;
+
+	if(gwin == NULL || gwin->ui_nami == false)
+		return;
+	if(gid == gwin->tb_hover_gid)
+		return;
+	prev = gwin->tb_hover_gid;
+	gwin->tb_hover_gid = gid;
+	if(prev != 0)
+		ami_gui_tb_refresh_gid(gwin, prev);
+	if(gid != 0)
+		ami_gui_tb_refresh_gid(gwin, gid);
+}
+
+static void ami_gui_tb_set_armed(struct gui_window_2 *gwin, WORD gid)
+{
+	WORD prev;
+
+	if(gwin == NULL || gwin->ui_nami == false)
+		return;
+	if(gid == gwin->tb_armed_gid)
+		return;
+	prev = gwin->tb_armed_gid;
+	gwin->tb_armed_gid = gid;
+	if(prev != 0)
+		ami_gui_tb_refresh_gid(gwin, prev);
+	if(gid != 0)
+		ami_gui_tb_refresh_gid(gwin, gid);
+}
+
 static void ami_update_buttons(struct gui_window_2 *gwin)
 {
 	long back=FALSE, forward=FALSE, tabclose=FALSE, stop=FALSE, reload=FALSE;
@@ -2304,37 +3287,66 @@ static void ami_update_buttons(struct gui_window_2 *gwin)
 		}
 	}
 
-	GetAttr(GA_Disabled, gwin->objects[GID_BACK], (uint32 *)&s_back);
-	GetAttr(GA_Disabled, gwin->objects[GID_FORWARD], (uint32 *)&s_forward);
-	GetAttr(GA_Disabled, gwin->objects[GID_RELOAD], (uint32 *)&s_reload);
-	GetAttr(GA_Disabled, gwin->objects[GID_STOP], (uint32 *)&s_stop);
+	GetAttr(GA_ReadOnly, gwin->objects[GID_BACK], (uint32 *)&s_back);
+	GetAttr(GA_ReadOnly, gwin->objects[GID_FORWARD], (uint32 *)&s_forward);
 
 	if(BOOL_MISMATCH(s_back, back))
-		SetGadgetAttrs((struct Gadget *)gwin->objects[GID_BACK],
-			gwin->win, NULL, GA_Disabled, back, TAG_DONE);
+		ami_gui_tb_set_ghosted(gwin, GID_BACK, GID_BACK_BM, GID_BACK_BM_G, back);
 
 	if(BOOL_MISMATCH(s_forward, forward))
-		SetGadgetAttrs((struct Gadget *)gwin->objects[GID_FORWARD],
-			gwin->win, NULL, GA_Disabled, forward, TAG_DONE);
+		ami_gui_tb_set_ghosted(gwin, GID_FORWARD, GID_FORWARD_BM,
+				GID_FORWARD_BM_G, forward);
 
-	if(BOOL_MISMATCH(s_reload, reload))
-		SetGadgetAttrs((struct Gadget *)gwin->objects[GID_RELOAD],
-			gwin->win, NULL, GA_Disabled, reload, TAG_DONE);
+	/*
+	 * Nami: one toolbar slot — Stop art while loading, else Reload.
+	 * Same BUTTON_RenderImage swap as favicon star / page-info padlock.
+	 */
+	if(gwin->ui_nami) {
+		ULONG bm_n, bm_g;
+		const char *hint;
+		long disabled;
 
-	if(BOOL_MISMATCH(s_stop, stop))
-		SetGadgetAttrs((struct Gadget *)gwin->objects[GID_STOP],
-			gwin->win, NULL, GA_Disabled, stop, TAG_DONE);
+		if(stop == FALSE) {
+			bm_n = GID_STOP_BM;
+			bm_g = GID_STOP_BM_G;
+			hint = gwin->helphints[GID_STOP];
+			disabled = FALSE;
+		} else {
+			bm_n = GID_RELOAD_BM;
+			bm_g = GID_RELOAD_BM_G;
+			hint = gwin->helphints[GID_RELOAD];
+			disabled = reload;
+		}
+		if(gwin->objects[GID_RELOAD] != NULL) {
+			RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[GID_RELOAD],
+				gwin->win, NULL,
+				GA_HintInfo, hint,
+				TAG_DONE);
+			ami_gui_tb_set_ghosted(gwin, GID_RELOAD, bm_n, bm_g, disabled);
+		}
+	} else {
+		GetAttr(GA_ReadOnly, gwin->objects[GID_RELOAD], (uint32 *)&s_reload);
+		GetAttr(GA_ReadOnly, gwin->objects[GID_STOP], (uint32 *)&s_stop);
+
+		if(BOOL_MISMATCH(s_reload, reload))
+			ami_gui_tb_set_ghosted(gwin, GID_RELOAD, GID_RELOAD_BM,
+					GID_RELOAD_BM_G, reload);
+
+		if(BOOL_MISMATCH(s_stop, stop))
+			ami_gui_tb_set_ghosted(gwin, GID_STOP, GID_STOP_BM,
+					GID_STOP_BM_G, stop);
+	}
 
 	/* Standalone close button is only used when clicktab has no embedded close */
 	if((ami_clicktab_has_close() == FALSE) &&
 	   (gwin->objects[GID_CLOSETAB] != NULL)) {
 		if(gwin->tabs <= 1) tabclose = TRUE;
 
-		GetAttr(GA_Disabled, gwin->objects[GID_CLOSETAB], (uint32 *)&s_tabclose);
+		GetAttr(GA_ReadOnly, gwin->objects[GID_CLOSETAB], (uint32 *)&s_tabclose);
 
 		if(BOOL_MISMATCH(s_tabclose, tabclose))
-			SetGadgetAttrs((struct Gadget *)gwin->objects[GID_CLOSETAB],
-				gwin->win, NULL, GA_Disabled, tabclose, TAG_DONE);
+			ami_gui_tb_set_ghosted(gwin, GID_CLOSETAB, GID_CLOSETAB_BM,
+					GID_CLOSETAB_BM_G, tabclose);
 	}
 
 	/* Update the back/forward buttons history context menu */
@@ -2596,71 +3608,85 @@ static void ami_gui_scroll_internal(struct gui_window_2 *gwin, int xs, int ys)
 	{
 		if(browser_window_scroll_at_point(gwin->gw->bw, x, y, xs, ys) == false)
 		{
-			int width, height;
-
-			gui_window_get_scroll(gwin->gw,
-				&gwin->gw->scrollx,
-				&gwin->gw->scrolly);
-
-			if(ami_gui_get_space_box((Object *)gwin->objects[GID_BROWSER], &bbox) != NSERROR_OK) {
-				amiga_warn_user("NoMemory", "");
-				return;
-			}
-
-			browser_window_get_extents(gwin->gw->bw, false, &width, &height);
-
-			switch(xs)
-			{
-				case SCROLL_PAGE_UP:
-					xs = gwin->gw->scrollx - bbox->Width;
-				break;
-
-				case SCROLL_PAGE_DOWN:
-					xs = gwin->gw->scrollx + bbox->Width;
-				break;
-
-				case SCROLL_TOP:
-					xs = 0;
-				break;
-
-				case SCROLL_BOTTOM:
-					xs = width;
-				break;
-
-				default:
-					xs += gwin->gw->scrollx;
-				break;
-			}
-
-			switch(ys)
-			{
-				case SCROLL_PAGE_UP:
-					ys = gwin->gw->scrolly - bbox->Height;
-				break;
-
-				case SCROLL_PAGE_DOWN:
-					ys = gwin->gw->scrolly + bbox->Height;
-				break;
-
-				case SCROLL_TOP:
-					ys = 0;
-				break;
-
-				case SCROLL_BOTTOM:
-					ys = height;
-				break;
-
-				default:
-					ys += gwin->gw->scrolly;
-				break;
-			}
-
-			ami_gui_free_space_box(bbox);
-			rect.x0 = rect.x1 = xs;
-			rect.y0 = rect.y1 = ys;
-			gui_window_set_scroll(gwin->gw, &rect);
+			ami_gui_scroll_viewport(gwin, xs, ys);
 		}
 	}
+}
+
+/**
+ * Scroll the HTML viewport by deltas (or page/top/bottom sentinels).
+ * Used for border arrows where the pointer is outside the browser SpaceObj.
+ */
+static void ami_gui_scroll_viewport(struct gui_window_2 *gwin, int xs, int ys)
+{
+	struct IBox *bbox;
+	struct rect rect;
+	int width, height;
+
+	if(gwin == NULL || gwin->gw == NULL || gwin->gw->bw == NULL)
+		return;
+
+	gui_window_get_scroll(gwin->gw,
+		&gwin->gw->scrollx,
+		&gwin->gw->scrolly);
+
+	if(ami_gui_get_space_box((Object *)gwin->objects[GID_BROWSER], &bbox) != NSERROR_OK) {
+		amiga_warn_user("NoMemory", "");
+		return;
+	}
+
+	browser_window_get_extents(gwin->gw->bw, false, &width, &height);
+
+	switch(xs)
+	{
+		case SCROLL_PAGE_UP:
+			xs = gwin->gw->scrollx - bbox->Width;
+		break;
+
+		case SCROLL_PAGE_DOWN:
+			xs = gwin->gw->scrollx + bbox->Width;
+		break;
+
+		case SCROLL_TOP:
+			xs = 0;
+		break;
+
+		case SCROLL_BOTTOM:
+			xs = width;
+		break;
+
+		default:
+			xs += gwin->gw->scrollx;
+		break;
+	}
+
+	switch(ys)
+	{
+		case SCROLL_PAGE_UP:
+			ys = gwin->gw->scrolly - bbox->Height;
+		break;
+
+		case SCROLL_PAGE_DOWN:
+			ys = gwin->gw->scrolly + bbox->Height;
+		break;
+
+		case SCROLL_TOP:
+			ys = 0;
+		break;
+
+		case SCROLL_BOTTOM:
+			ys = height;
+		break;
+
+		default:
+			ys += gwin->gw->scrolly;
+		break;
+	}
+
+	ami_gui_free_space_box(bbox);
+	rect.x0 = rect.x1 = xs;
+	rect.y0 = rect.y1 = ys;
+	gui_window_set_scroll(gwin->gw, &rect);
 }
 
 static struct IBox *ami_ns_rect_to_ibox(struct gui_window_2 *gwin, const struct rect *rect)
@@ -2780,6 +3806,10 @@ static bool ami_gui_hscroll_add(struct gui_window_2 *gwin)
 
 	if(gwin->objects[GID_HSCROLL] != NULL) return false;
 
+	/* Nami border scrollers are created once; do not use layout children */
+	if(gwin->ui_nami)
+		return false;
+
 	attrs[0].ti_Tag = CHILD_MinWidth;
 	attrs[0].ti_Data = 0;
 	attrs[1].ti_Tag = TAG_DONE;
@@ -2807,6 +3837,10 @@ static bool ami_gui_hscroll_remove(struct gui_window_2 *gwin)
 {
 	if(gwin->objects[GID_HSCROLL] == NULL) return false;
 
+	/* Nami: keep border scrollers for the life of the window */
+	if(gwin->ui_nami)
+		return false;
+
 #ifdef __amigaos4__
 	IDoMethod(gwin->objects[GID_HSCROLLLAYOUT], LM_REMOVECHILD,
 			gwin->win, gwin->objects[GID_HSCROLL]);
@@ -2828,6 +3862,9 @@ static bool ami_gui_vscroll_add(struct gui_window_2 *gwin)
 	struct TagItem attrs[2];
 
 	if(gwin->objects[GID_VSCROLL] != NULL) return false;
+
+	if(gwin->ui_nami)
+		return false;
 
 	attrs[0].ti_Tag = CHILD_MinWidth;
 	attrs[0].ti_Data = 0;
@@ -2855,6 +3892,9 @@ static bool ami_gui_vscroll_remove(struct gui_window_2 *gwin)
 {
 	if(gwin->objects[GID_VSCROLL] == NULL) return false;
 
+	if(gwin->ui_nami)
+		return false;
+
 #ifdef __amigaos4__
 	IDoMethod(gwin->objects[GID_VSCROLLLAYOUT], LM_REMOVECHILD,
 			gwin->win, gwin->objects[GID_VSCROLL]);
@@ -2867,6 +3907,463 @@ static bool ami_gui_vscroll_remove(struct gui_window_2 *gwin)
 	gwin->objects[GID_VSCROLL] = NULL;
 
 	return true;
+}
+
+/**
+ * Nami: border scrollers — sysiclass arrows + borderless propgclass
+ * knobs drawn in the size borders (not scroller.gadget bevel chrome).
+ * Drive HTML viewport via PGA_Top; stay for the window lifetime.
+ * Zoom/Depth title gadgets are mounted in the SizeBRight strip so they sit
+ * on the window's right edge (layout chrome stops at the inner border).
+ */
+static void ami_gui_nami_create_border_scrollers(struct gui_window_2 *gwin)
+{
+	struct Window *win;
+	struct DrawInfo *dri;
+	struct Gadget *cgad;
+	struct Image *cim;
+	Object *prev;
+	WORD br, bb, bt, bl;
+	WORD dh, uh, lw, rw;
+	WORD vtop;
+	WORD chtop, chh;
+	WORD dw, dhh;
+
+	if(gwin == NULL || gwin->ui_nami == false)
+		return;
+	win = gwin->win;
+	if(win == NULL)
+		return;
+	if(gwin->objects[GID_VSCROLL] != NULL)
+		return;
+
+	br = win->BorderRight;
+	bb = win->BorderBottom;
+	bt = win->BorderTop;
+	bl = win->BorderLeft;
+	if(br < 12)
+		br = 16;
+	if(bb < 10)
+		bb = 14;
+
+	/* Align with in-layout chrome row (close/tabs/drag) */
+	chtop = bt;
+	chh = 16;
+	if(gwin->objects[GID_CHROMELAYOUT] != NULL) {
+		cgad = (struct Gadget *)gwin->objects[GID_CHROMELAYOUT];
+		if(cgad->Height > 0) {
+			chtop = cgad->TopEdge;
+			chh = cgad->Height;
+		}
+	}
+
+	cim = (struct Image *)gwin->objects[GID_WIN_DEPTH_BM];
+	dw = (cim != NULL && cim->Width > 0) ? cim->Width : 16;
+	dhh = (cim != NULL && cim->Height > 0) ? cim->Height : chh;
+	if(dhh < chh)
+		dhh = chh;
+	/* Natural image width; may overhang left of SizeBRight into the pad */
+
+	/* Refine zoom/depth pad now that BorderRight is known */
+	if(gwin->objects[GID_CHROME_RPAD] != NULL &&
+	   gwin->objects[GID_CHROMELAYOUT] != NULL) {
+		WORD pad;
+
+		pad = 0;
+		if(dw > br)
+			pad = (WORD)(dw - br);
+		SetGadgetAttrs((struct Gadget *)gwin->objects[GID_CHROMELAYOUT],
+				win, NULL,
+				LAYOUT_ModifyChild, gwin->objects[GID_CHROME_RPAD],
+				CHILD_MinWidth, (ULONG)pad,
+				CHILD_MaxWidth, (ULONG)pad,
+				TAG_DONE);
+		FlushLayoutDomainCache((struct Gadget *)gwin->objects[GID_MAIN]);
+		RethinkLayout((struct Gadget *)gwin->objects[GID_MAIN],
+				win, NULL, TRUE);
+		/* Chrome height may have settled after rethink */
+		if(gwin->objects[GID_CHROMELAYOUT] != NULL) {
+			cgad = (struct Gadget *)gwin->objects[GID_CHROMELAYOUT];
+			if(cgad->Height > 0) {
+				chtop = cgad->TopEdge;
+				chh = cgad->Height;
+			}
+		}
+	}
+
+	/* Start under chrome, not at BorderTop */
+	vtop = (WORD)(chtop + chh + 2);
+	if(vtop < (WORD)(bt + 2))
+		vtop = (WORD)(bt + 2);
+
+	dri = GetScreenDrawInfo(scrn);
+	if(dri == NULL)
+		return;
+
+	gwin->objects[GID_SCROLL_DOWN_BM] = NewObject(NULL, "sysiclass",
+			SYSIA_DrawInfo, dri,
+			SYSIA_Which, DOWNIMAGE,
+			TAG_DONE);
+	gwin->objects[GID_SCROLL_UP_BM] = NewObject(NULL, "sysiclass",
+			SYSIA_DrawInfo, dri,
+			SYSIA_Which, UPIMAGE,
+			TAG_DONE);
+	gwin->objects[GID_SCROLL_RIGHT_BM] = NewObject(NULL, "sysiclass",
+			SYSIA_DrawInfo, dri,
+			SYSIA_Which, RIGHTIMAGE,
+			TAG_DONE);
+	gwin->objects[GID_SCROLL_LEFT_BM] = NewObject(NULL, "sysiclass",
+			SYSIA_DrawInfo, dri,
+			SYSIA_Which, LEFTIMAGE,
+			TAG_DONE);
+	FreeScreenDrawInfo(scrn, dri);
+
+	if(gwin->objects[GID_SCROLL_DOWN_BM] == NULL ||
+	   gwin->objects[GID_SCROLL_UP_BM] == NULL ||
+	   gwin->objects[GID_SCROLL_RIGHT_BM] == NULL ||
+	   gwin->objects[GID_SCROLL_LEFT_BM] == NULL) {
+		ami_gui_nami_destroy_border_scrollers(gwin);
+		return;
+	}
+
+	/*
+	 * Depth only in SizeBRight.  Own a dedicated sysi image — never share
+	 * GID_WIN_DEPTH_BM with chrome hooks (buttongclass DisposeObject can
+	 * free GA_Image; a shared chrome BM then double-frees → MemList).
+	 */
+	if(gwin->objects[GID_WIN_DEPTH] == NULL) {
+		Object *depth_img;
+
+		depth_img = ami_gui_make_chrome_sysi_image(scrn, DEPTHIMAGE);
+		cim = (struct Image *)depth_img;
+		if(cim != NULL && cim->Width > 0)
+			dw = cim->Width;
+		if(cim != NULL && cim->Height > 0)
+			dhh = cim->Height;
+		if(dhh < chh)
+			dhh = chh;
+		gwin->objects[GID_WIN_DEPTH] = NewObject(NULL, "buttongclass",
+				GA_RelRight, (LONG)(-(LONG)dw + 1),
+				GA_Top, (ULONG)chtop,
+				GA_Width, (ULONG)dw,
+				GA_Height, (ULONG)dhh,
+				GA_Image, depth_img,
+				GA_ID, GID_WIN_DEPTH,
+				GA_Immediate, TRUE,
+				GA_RelVerify, TRUE,
+				TAG_DONE);
+		/* NewObject failed: we still own depth_img */
+		if(gwin->objects[GID_WIN_DEPTH] == NULL && depth_img != NULL)
+			DisposeObject(depth_img);
+	}
+
+	dh = ((struct Image *)gwin->objects[GID_SCROLL_DOWN_BM])->Height;
+	uh = ((struct Image *)gwin->objects[GID_SCROLL_UP_BM])->Height;
+	rw = ((struct Image *)gwin->objects[GID_SCROLL_RIGHT_BM])->Width;
+	lw = ((struct Image *)gwin->objects[GID_SCROLL_LEFT_BM])->Width;
+
+	/* Arrow buttons then prop knobs in the borders */
+	gwin->objects[GID_SCROLL_DOWN] = NewObject(NULL, "buttongclass",
+			GA_RelRight, (LONG)(-(br) + 1),
+			GA_RelBottom, (LONG)(-(bb) - dh + 1),
+			GA_Image, gwin->objects[GID_SCROLL_DOWN_BM],
+			GA_ID, GID_SCROLL_DOWN,
+			GA_Immediate, TRUE,
+			GA_RelVerify, TRUE,
+			ICA_TARGET, ICTARGET_IDCMP,
+			TAG_DONE);
+	prev = gwin->objects[GID_SCROLL_DOWN];
+
+	gwin->objects[GID_SCROLL_UP] = NewObject(NULL, "buttongclass",
+			GA_RelRight, (LONG)(-(br) + 1),
+			GA_RelBottom, (LONG)(-(bb) - dh - uh + 1),
+			GA_Image, gwin->objects[GID_SCROLL_UP_BM],
+			GA_ID, GID_SCROLL_UP,
+			GA_Immediate, TRUE,
+			GA_RelVerify, TRUE,
+			ICA_TARGET, ICTARGET_IDCMP,
+			GA_Previous, prev,
+			TAG_DONE);
+	prev = gwin->objects[GID_SCROLL_UP];
+
+	gwin->objects[GID_VSCROLL] = NewObject(NULL, "propgclass",
+			GA_RelRight, (LONG)(-(br) + 5),
+			GA_Width, (ULONG)(br - 8),
+			GA_Top, (ULONG)vtop,
+			GA_RelHeight, (LONG)(-(vtop + bb + dh + uh + 2)),
+			GA_ID, GID_VSCROLL,
+			PGA_Freedom, FREEVERT,
+			PGA_Total, 1,
+			PGA_Visible, 1,
+			PGA_NewLook, TRUE,
+			PGA_Borderless, TRUE,
+			ICA_TARGET, ICTARGET_IDCMP,
+			GA_Previous, prev,
+			TAG_DONE);
+	prev = gwin->objects[GID_VSCROLL];
+
+	gwin->objects[GID_SCROLL_RIGHT] = NewObject(NULL, "buttongclass",
+			GA_RelRight, (LONG)(-(br) - rw + 1),
+			GA_RelBottom, (LONG)(-(bb) + 1),
+			GA_Image, gwin->objects[GID_SCROLL_RIGHT_BM],
+			GA_ID, GID_SCROLL_RIGHT,
+			GA_Immediate, TRUE,
+			GA_RelVerify, TRUE,
+			ICA_TARGET, ICTARGET_IDCMP,
+			GA_Previous, prev,
+			TAG_DONE);
+	prev = gwin->objects[GID_SCROLL_RIGHT];
+
+	gwin->objects[GID_SCROLL_LEFT] = NewObject(NULL, "buttongclass",
+			GA_RelRight, (LONG)(-(br) - rw - lw + 1),
+			GA_RelBottom, (LONG)(-(bb) + 1),
+			GA_Image, gwin->objects[GID_SCROLL_LEFT_BM],
+			GA_ID, GID_SCROLL_LEFT,
+			GA_Immediate, TRUE,
+			GA_RelVerify, TRUE,
+			ICA_TARGET, ICTARGET_IDCMP,
+			GA_Previous, prev,
+			TAG_DONE);
+	prev = gwin->objects[GID_SCROLL_LEFT];
+
+	gwin->objects[GID_HSCROLL] = NewObject(NULL, "propgclass",
+			GA_Left, (ULONG)bl,
+			GA_RelBottom, (LONG)(-(bb) + 3),
+			GA_RelWidth, (LONG)(-(bl + br + rw + lw + 2)),
+			GA_Height, (ULONG)(bb - 4),
+			GA_ID, GID_HSCROLL,
+			PGA_Freedom, FREEHORIZ,
+			PGA_Total, 1,
+			PGA_Visible, 1,
+			PGA_NewLook, TRUE,
+			PGA_Borderless, TRUE,
+			ICA_TARGET, ICTARGET_IDCMP,
+			GA_Previous, prev,
+			TAG_DONE);
+
+	if(gwin->objects[GID_SCROLL_DOWN] == NULL ||
+	   gwin->objects[GID_SCROLL_UP] == NULL ||
+	   gwin->objects[GID_VSCROLL] == NULL ||
+	   gwin->objects[GID_SCROLL_RIGHT] == NULL ||
+	   gwin->objects[GID_SCROLL_LEFT] == NULL ||
+	   gwin->objects[GID_HSCROLL] == NULL) {
+		ami_gui_nami_destroy_border_scrollers(gwin);
+		return;
+	}
+
+	gwin->nami_vprop_shift = 0;
+	gwin->nami_hprop_shift = 0;
+
+	/* Zoom/Depth first so they sit above the SizeBRight fill */
+	if(gwin->objects[GID_WIN_DEPTH] != NULL) {
+		AddGList(win, (struct Gadget *)gwin->objects[GID_WIN_DEPTH],
+				(UWORD)~0, 1, NULL);
+	}
+
+	/* One AddGList of the GA_Previous scroller chain */
+	AddGList(win, (struct Gadget *)gwin->objects[GID_SCROLL_DOWN],
+			(UWORD)~0, -1, NULL);
+	RefreshGList((struct Gadget *)gwin->objects[GID_SCROLL_DOWN],
+			win, NULL, -1);
+	if(gwin->objects[GID_WIN_DEPTH] != NULL)
+		RefreshGList((struct Gadget *)gwin->objects[GID_WIN_DEPTH],
+				win, NULL, 1);
+	ami_gui_nami_paint_chrome_rborder(gwin);
+}
+
+static void ami_gui_nami_destroy_border_scrollers(struct gui_window_2 *gwin)
+{
+	struct Gadget *gad;
+	struct Gadget *scan;
+	BOOL inwin;
+	Object *depth_img;
+	Object *down_img;
+	Object *up_img;
+	Object *right_img;
+	Object *left_img;
+	ULONG img_ptr;
+
+	if(gwin == NULL || gwin->ui_nami == false)
+		return;
+
+	/*
+	 * buttongclass may free GA_Image on DisposeObject.  Snapshot each
+	 * image, detach (GA_Image NULL), dispose gadgets, then dispose each
+	 * image exactly once.  Double DisposeObject of sysi images was a
+	 * MemList corruption source that showed up on the next launch.
+	 */
+	depth_img = NULL;
+	down_img = NULL;
+	up_img = NULL;
+	right_img = NULL;
+	left_img = NULL;
+
+	inwin = FALSE;
+	if(gwin->win != NULL && gwin->objects[GID_WIN_DEPTH] != NULL) {
+		gad = (struct Gadget *)gwin->objects[GID_WIN_DEPTH];
+		for(scan = gwin->win->FirstGadget; scan != NULL; scan = scan->NextGadget) {
+			if(scan == gad) {
+				inwin = TRUE;
+				break;
+			}
+		}
+		if(inwin)
+			RemoveGList(gwin->win, gad, 1);
+	}
+	if(gwin->objects[GID_WIN_DEPTH] != NULL) {
+		img_ptr = 0;
+		GetAttr(GA_Image, gwin->objects[GID_WIN_DEPTH], &img_ptr);
+		depth_img = (Object *)img_ptr;
+		SetAttrs(gwin->objects[GID_WIN_DEPTH], GA_Image, NULL, TAG_DONE);
+		((struct Gadget *)gwin->objects[GID_WIN_DEPTH])->NextGadget = NULL;
+		DisposeObject(gwin->objects[GID_WIN_DEPTH]);
+		gwin->objects[GID_WIN_DEPTH] = NULL;
+	}
+
+	inwin = FALSE;
+	if(gwin->win != NULL && gwin->objects[GID_SCROLL_DOWN] != NULL) {
+		gad = (struct Gadget *)gwin->objects[GID_SCROLL_DOWN];
+		for(scan = gwin->win->FirstGadget; scan != NULL; scan = scan->NextGadget) {
+			if(scan == gad) {
+				inwin = TRUE;
+				break;
+			}
+		}
+		if(inwin)
+			RemoveGList(gwin->win, gad, -1);
+	}
+
+	/* Snapshot + detach images before disposing buttongclass */
+	if(gwin->objects[GID_SCROLL_DOWN] != NULL) {
+		img_ptr = 0;
+		GetAttr(GA_Image, gwin->objects[GID_SCROLL_DOWN], &img_ptr);
+		down_img = (Object *)img_ptr;
+		SetAttrs(gwin->objects[GID_SCROLL_DOWN], GA_Image, NULL, TAG_DONE);
+		((struct Gadget *)gwin->objects[GID_SCROLL_DOWN])->NextGadget = NULL;
+	}
+	if(gwin->objects[GID_SCROLL_UP] != NULL) {
+		img_ptr = 0;
+		GetAttr(GA_Image, gwin->objects[GID_SCROLL_UP], &img_ptr);
+		up_img = (Object *)img_ptr;
+		SetAttrs(gwin->objects[GID_SCROLL_UP], GA_Image, NULL, TAG_DONE);
+		((struct Gadget *)gwin->objects[GID_SCROLL_UP])->NextGadget = NULL;
+	}
+	if(gwin->objects[GID_VSCROLL] != NULL)
+		((struct Gadget *)gwin->objects[GID_VSCROLL])->NextGadget = NULL;
+	if(gwin->objects[GID_SCROLL_RIGHT] != NULL) {
+		img_ptr = 0;
+		GetAttr(GA_Image, gwin->objects[GID_SCROLL_RIGHT], &img_ptr);
+		right_img = (Object *)img_ptr;
+		SetAttrs(gwin->objects[GID_SCROLL_RIGHT], GA_Image, NULL, TAG_DONE);
+		((struct Gadget *)gwin->objects[GID_SCROLL_RIGHT])->NextGadget = NULL;
+	}
+	if(gwin->objects[GID_SCROLL_LEFT] != NULL) {
+		img_ptr = 0;
+		GetAttr(GA_Image, gwin->objects[GID_SCROLL_LEFT], &img_ptr);
+		left_img = (Object *)img_ptr;
+		SetAttrs(gwin->objects[GID_SCROLL_LEFT], GA_Image, NULL, TAG_DONE);
+		((struct Gadget *)gwin->objects[GID_SCROLL_LEFT])->NextGadget = NULL;
+	}
+	if(gwin->objects[GID_HSCROLL] != NULL)
+		((struct Gadget *)gwin->objects[GID_HSCROLL])->NextGadget = NULL;
+
+	if(gwin->objects[GID_HSCROLL] != NULL) {
+		DisposeObject(gwin->objects[GID_HSCROLL]);
+		gwin->objects[GID_HSCROLL] = NULL;
+	}
+	if(gwin->objects[GID_SCROLL_LEFT] != NULL) {
+		DisposeObject(gwin->objects[GID_SCROLL_LEFT]);
+		gwin->objects[GID_SCROLL_LEFT] = NULL;
+	}
+	if(gwin->objects[GID_SCROLL_RIGHT] != NULL) {
+		DisposeObject(gwin->objects[GID_SCROLL_RIGHT]);
+		gwin->objects[GID_SCROLL_RIGHT] = NULL;
+	}
+	if(gwin->objects[GID_VSCROLL] != NULL) {
+		DisposeObject(gwin->objects[GID_VSCROLL]);
+		gwin->objects[GID_VSCROLL] = NULL;
+	}
+	if(gwin->objects[GID_SCROLL_UP] != NULL) {
+		DisposeObject(gwin->objects[GID_SCROLL_UP]);
+		gwin->objects[GID_SCROLL_UP] = NULL;
+	}
+	if(gwin->objects[GID_SCROLL_DOWN] != NULL) {
+		DisposeObject(gwin->objects[GID_SCROLL_DOWN]);
+		gwin->objects[GID_SCROLL_DOWN] = NULL;
+	}
+
+	/* Dispose each image once; clear BM slots (may alias the snapshots) */
+	if(down_img != NULL)
+		DisposeObject(down_img);
+	else if(gwin->objects[GID_SCROLL_DOWN_BM] != NULL)
+		DisposeObject(gwin->objects[GID_SCROLL_DOWN_BM]);
+	gwin->objects[GID_SCROLL_DOWN_BM] = NULL;
+
+	if(up_img != NULL)
+		DisposeObject(up_img);
+	else if(gwin->objects[GID_SCROLL_UP_BM] != NULL)
+		DisposeObject(gwin->objects[GID_SCROLL_UP_BM]);
+	gwin->objects[GID_SCROLL_UP_BM] = NULL;
+
+	if(right_img != NULL)
+		DisposeObject(right_img);
+	else if(gwin->objects[GID_SCROLL_RIGHT_BM] != NULL)
+		DisposeObject(gwin->objects[GID_SCROLL_RIGHT_BM]);
+	gwin->objects[GID_SCROLL_RIGHT_BM] = NULL;
+
+	if(left_img != NULL)
+		DisposeObject(left_img);
+	else if(gwin->objects[GID_SCROLL_LEFT_BM] != NULL)
+		DisposeObject(gwin->objects[GID_SCROLL_LEFT_BM]);
+	gwin->objects[GID_SCROLL_LEFT_BM] = NULL;
+
+	if(depth_img != NULL &&
+	   depth_img != gwin->objects[GID_WIN_DEPTH_BM]) {
+		DisposeObject(depth_img);
+	}
+	/*
+	 * Chrome still uses GID_WIN_DEPTH_BM until OID_MAIN is disposed —
+	 * leave it for gui_window_destroy.
+	 */
+}
+
+/**
+ * Apply PGA_Total/Visible/Top with optional >64k shift.
+ */
+static void ami_gui_nami_set_prop(struct gui_window_2 *gwin, Object *gad,
+		UBYTE *shift_io, ULONG total, ULONG vis, ULONG top, BOOL set_top)
+{
+	ULONG stotal, svis, stop;
+	UBYTE shift;
+
+	if(gad == NULL || gwin->win == NULL)
+		return;
+
+	stotal = total;
+	svis = vis;
+	shift = 0;
+	while(stotal > 0xffffUL) {
+		stotal >>= 1;
+		shift++;
+	}
+	svis >>= shift;
+	if(svis < 1)
+		svis = 1;
+	*shift_io = shift;
+
+	if(set_top) {
+		stop = top >> shift;
+		RefreshSetGadgetAttrs((struct Gadget *)gad, gwin->win, NULL,
+				PGA_Total, stotal,
+				PGA_Visible, svis,
+				PGA_Top, stop,
+				TAG_DONE);
+	} else {
+		RefreshSetGadgetAttrs((struct Gadget *)gad, gwin->win, NULL,
+				PGA_Total, stotal,
+				PGA_Visible, svis,
+				TAG_DONE);
+	}
 }
 
 /**
@@ -2883,6 +4380,12 @@ static void ami_gui_scroller_update(struct gui_window_2 *gwin)
 	bool rethinkh = false;
 	browser_scrolling hscroll = BW_SCROLLING_YES;
 	browser_scrolling vscroll = BW_SCROLLING_YES;
+
+	/* Nami border scrollers are permanent; extent attrs update separately */
+	if(gwin->ui_nami) {
+		ami_gui_nami_create_border_scrollers(gwin);
+		return;
+	}
 
 	browser_window_get_scrollbar_type(gwin->gw->bw, &hscroll, &vscroll);
 
@@ -3136,17 +4639,30 @@ gui_window_console_log(struct gui_window *g,
  * clicktab TNA_Image is declared in gadgets/clicktab.h but unimplemented
  * (shows nothing on OS3/OS4).  Draw beside the URL bar instead.  Close
  * gadgets use CLICKTAB_CloseImage from sysiclass and are unrelated.
+ *
+ * Nami: this slot is also the hotlist control — with no page favicon the
+ * AISS +hotlist (or remove) glyph is drawn; click toggles the hotlist.
  */
 static void gui_window_set_icon(struct gui_window *g, struct hlcache_handle *icon)
 {
 	struct BitMap *bm = NULL;
 	struct IBox *bbox;
 	struct bitmap *icon_bitmap = NULL;
+	Object *def_img;
+	char *urlstr;
+	nsurl *nsurl;
+	BOOL in_hotlist;
+	struct DrawInfo *dri;
 
 	if(nsoption_bool(kiosk_mode) == true) return;
 	if(!g) return;
 
 	g->favicon = icon;
+	def_img = NULL;
+	urlstr = NULL;
+	nsurl = NULL;
+	in_hotlist = FALSE;
+	dri = NULL;
 
 	if ((icon != NULL) && ((icon_bitmap = content_get_bitmap(icon)) != NULL))
 	{
@@ -3160,27 +4676,21 @@ static void gui_window_set_icon(struct gui_window *g, struct hlcache_handle *ico
 	   (g->shared->objects[GID_ICON] == NULL))
 		return;
 
-	RefreshGList((struct Gadget *)g->shared->objects[GID_ICON],
-				g->shared->win, NULL, 1);
-
-	if(bm == NULL)
+	if(ami_gui_get_space_box((Object *)g->shared->objects[GID_ICON],
+				&bbox) != NSERROR_OK) {
+		amiga_warn_user("NoMemory", "");
 		return;
+	}
 
-	{
+	EraseRect(g->shared->win->RPort, bbox->Left, bbox->Top,
+				bbox->Left + 16, bbox->Top + 16);
+
+	if(bm != NULL) {
 		ULONG tag_data;
 		ULONG minterm;
 
 		tag_data = (ULONG)ami_bitmap_get_mask(icon_bitmap, 16, 16, bm);
 		minterm = MINTERM_SRCMASK;
-
-		if(ami_gui_get_space_box((Object *)g->shared->objects[GID_ICON],
-					&bbox) != NSERROR_OK) {
-			amiga_warn_user("NoMemory", "");
-			return;
-		}
-
-		EraseRect(g->shared->win->RPort, bbox->Left, bbox->Top,
-					bbox->Left + 16, bbox->Top + 16);
 
 		if((icon_bitmap != NULL) &&
 		   (amiga_bitmap_get_opaque(icon_bitmap) == false) &&
@@ -3193,8 +4703,31 @@ static void gui_window_set_icon(struct gui_window *g, struct hlcache_handle *ico
 						bbox->Left, bbox->Top, 16, 16,
 						0xc0);
 		}
-		ami_gui_free_space_box(bbox);
+	} else if(g->shared->ui_nami) {
+		/* No page favicon — show +hotlist / remove-hotlist glyph */
+		GetAttr(STRINGA_TextVal,
+			(Object *)g->shared->objects[GID_URL],
+			(ULONG *)&urlstr);
+		if(urlstr != NULL && nsurl_create(urlstr, &nsurl) == NSERROR_OK) {
+			in_hotlist = hotlist_has_url(nsurl) ? TRUE : FALSE;
+			nsurl_unref(nsurl);
+		}
+		def_img = in_hotlist
+			? g->shared->objects[GID_FAVE_RMV]
+			: g->shared->objects[GID_FAVE_ADD];
+		if(def_img != NULL) {
+			dri = GetScreenDrawInfo(scrn);
+			if(dri != NULL) {
+				DrawImageState(g->shared->win->RPort,
+						(struct Image *)def_img,
+						bbox->Left, bbox->Top,
+						IDS_NORMAL, dri);
+				FreeScreenDrawInfo(scrn, dri);
+			}
+		}
 	}
+
+	ami_gui_free_space_box(bbox);
 }
 
 static void ami_gui_refresh_favicon(void *p)
@@ -3236,6 +4769,9 @@ static void ami_set_border_gadget_size(struct gui_window_2 *gwin)
 #ifdef __amigaos4__
 	/* Reset gadget widths according to new calculation */
 	ULONG size1, size2;
+
+	if(gwin->objects[GID_STATUS] == NULL)
+		return;
 
 	ami_get_border_gadget_size(gwin, &size1, &size2);
 
@@ -3321,6 +4857,9 @@ static BOOL ami_gui_event(void *w)
 						gwin->win->MouseY - gwin->chrome_drag_offy);
 					break;
 				}
+
+				if(gwin->ui_nami)
+					ami_gui_tb_set_hover(gwin, ami_gui_tb_hit(gwin));
 
 				drag_x_move = 0;
 				drag_y_move = 0;
@@ -3538,7 +5077,41 @@ static BOOL ami_gui_event(void *w)
 					ami_drag_save(gwin->win);
 			break;
 
+			case WMHI_GADGETDOWN:
+				/* Nami border arrows — mouse is outside the HTML view */
+				switch(result & WMHI_GADGETMASK)
+				{
+					case GID_SCROLL_UP:
+						ami_gui_scroll_viewport(gwin, 0, -NSA_WHEEL_SCROLL_PX);
+					break;
+					case GID_SCROLL_DOWN:
+						ami_gui_scroll_viewport(gwin, 0, +NSA_WHEEL_SCROLL_PX);
+					break;
+					case GID_SCROLL_LEFT:
+						ami_gui_scroll_viewport(gwin, -NSA_WHEEL_SCROLL_PX, 0);
+					break;
+					case GID_SCROLL_RIGHT:
+						ami_gui_scroll_viewport(gwin, +NSA_WHEEL_SCROLL_PX, 0);
+					break;
+					case GID_BACK:
+					case GID_FORWARD:
+					case GID_STOP:
+					case GID_RELOAD:
+					case GID_PAGEINFO:
+					case GID_ICON:
+						if(gwin->ui_nami)
+							ami_gui_tb_set_armed(gwin,
+									(WORD)(result & WMHI_GADGETMASK));
+					break;
+					default:
+					break;
+				}
+			break;
+
 			case WMHI_GADGETUP:
+				if(gwin->ui_nami && gwin->tb_armed_gid != 0)
+					ami_gui_tb_set_armed(gwin, 0);
+
 				switch(result & WMHI_GADGETMASK)
 				{
 					case GID_TABS:
@@ -3605,6 +5178,9 @@ static BOOL ami_gui_event(void *w)
 						ULONG selected = 0;
 						ULONG i;
 
+						if(gwin->objects[GID_SEARCH_ICON] == NULL)
+							break;
+
 #ifdef __amigaos4__
 						GetAttr(CHOOSER_SelectedNode, gwin->objects[GID_SEARCH_ICON],
 							(ULONG *)&chooser_node);
@@ -3637,6 +5213,9 @@ static BOOL ami_gui_event(void *w)
 					{
 						nserror ret;
 						nsurl *url;
+
+						if(gwin->objects[GID_SEARCHSTRING] == NULL)
+							break;
 
 						GetAttr(STRINGA_TextVal,
 							(Object *)gwin->objects[GID_SEARCHSTRING],
@@ -3686,6 +5265,12 @@ static BOOL ami_gui_event(void *w)
 					break;
 
 					case GID_RELOAD:
+						/* Nami combined Stop/Reload: stop while loading */
+						if(gwin->ui_nami &&
+						   browser_window_stop_available(gwin->gw->bw)) {
+							browser_window_stop(gwin->gw->bw);
+							break;
+						}
 						ami_update_quals(gwin);
 
 						if(browser_window_reload_available(gwin->gw->bw))
@@ -3728,19 +5313,13 @@ static BOOL ami_gui_event(void *w)
 						}
 					break;
 
+					case GID_ICON:
+						if(gwin->ui_nami)
+							ami_gui_hotlist_toggle_from_url(gwin);
+					break;
+
 					case GID_FAVE:
-						GetAttr(STRINGA_TextVal,
-							(Object *)gwin->objects[GID_URL],
-							(ULONG *)&storage);
-						if(nsurl_create((const char *)storage, &url) == NSERROR_OK) {
-							if(hotlist_has_url(url)) {
-								hotlist_remove_url(url);
-							} else {
-								hotlist_add_url(url);
-							}
-							nsurl_unref(url);
-						}
-						ami_gui_update_hotlist_button(gwin);
+						ami_gui_hotlist_toggle_from_url(gwin);
 					break;
 
 					case GID_HOTLIST:
@@ -3878,9 +5457,23 @@ static BOOL ami_gui_event(void *w)
 				ami_throbber_redraw_schedule(0, gwin->gw);
 				ami_schedule(0, ami_gui_refresh_favicon, gwin);
 				browser_window_schedule_reformat(gwin->gw->bw);
+				/* Do not wait for content settle — size chrome now */
+				ami_schedule_redraw_interactive(gwin, true);
+				if(gwin->ui_nami) {
+					if(gwin->objects[GID_WIN_DEPTH] != NULL)
+						RefreshGList((struct Gadget *)gwin->objects[GID_WIN_DEPTH],
+								gwin->win, NULL, 1);
+					ami_gui_nami_paint_chrome_rborder(gwin);
+				}
 			break;
 
 			case WMHI_CLOSEWINDOW:
+				/* Destroy after paint strips finish — gwin is mid-use */
+				if(ami_gui_paint_depth > 0) {
+					gwin->closed = true;
+					win_closed = TRUE;
+					break;
+				}
 				ami_gui_close_window(gwin);
 				win_closed = TRUE;
 	        break;
@@ -3914,9 +5507,15 @@ static BOOL ami_gui_event(void *w)
 			case WMHI_INACTIVE:
 				gwin->gw->c_h_temp = gwin->gw->c_h;
 				gui_window_remove_caret(gwin->gw);
+				if(gwin->ui_nami) {
+					ami_gui_tb_set_hover(gwin, 0);
+					ami_gui_tb_set_armed(gwin, 0);
+				}
 				if(gwin->ui_nami && gwin->objects[GID_CHROMELAYOUT] != NULL)
 					RefreshGList((struct Gadget *)gwin->objects[GID_CHROMELAYOUT],
 						gwin->win, NULL, 1);
+				if(gwin->ui_nami)
+					ami_gui_nami_paint_chrome_rborder(gwin);
 			break;
 
 			case WMHI_ACTIVE:
@@ -3928,9 +5527,17 @@ static BOOL ami_gui_event(void *w)
 				if(gwin->ui_nami && gwin->objects[GID_CHROMELAYOUT] != NULL)
 					RefreshGList((struct Gadget *)gwin->objects[GID_CHROMELAYOUT],
 						gwin->win, NULL, 1);
+				if(gwin->ui_nami)
+					ami_gui_nami_paint_chrome_rborder(gwin);
+				if(gwin->ui_nami)
+					ami_gui_update_screentitle(gwin);
 			break;
 
 			case WMHI_INTUITICK:
+				/* Nami: refresh screen-title telemetry ~1 Hz while active */
+				if(gwin->ui_nami && gwin->win != NULL &&
+				   (gwin->win->Flags & WFLG_WINDOWACTIVE))
+					ami_gui_update_screentitle(gwin);
 			break;
 
    	     	default:
@@ -3965,7 +5572,9 @@ static BOOL ami_gui_event(void *w)
 
 	if(gwin->closed == true) {
 		win_closed = TRUE;
-		ami_gui_close_window(gwin);
+		/* Mid-paint close: destroy when strips finish (caller checks closed) */
+		if(ami_gui_paint_depth == 0)
+			ami_gui_close_window(gwin);
 	}
 
 	return win_closed;
@@ -4364,21 +5973,12 @@ static void gui_window_set_title(struct gui_window *g, const char *restrict titl
 
 			ami_gui_apply_tab_label(g, max_chars);
 
+			/* Title text only — MinorLabelChange avoids page/layout flicker. */
 			RefreshSetGadgetAttrs((struct Gadget *)g->shared->objects[GID_TABS],
 								g->shared->win, NULL,
 								CLICKTAB_Labels, &g->shared->tab_list,
 								CLICKTAB_MinorLabelChange, TRUE,
 								TAG_DONE);
-
-			if(g->shared->ui_nami) {
-				ami_gui_nami_fix_chrome_images(g->shared);
-				FlushLayoutDomainCache((struct Gadget *)g->shared->objects[GID_MAIN]);
-				RethinkLayout((struct Gadget *)g->shared->objects[GID_MAIN],
-					g->shared->win, NULL, TRUE);
-			} else if(ClickTabBase->lib_Version < 53) {
-				RethinkLayout((struct Gadget *)g->shared->objects[GID_TABLAYOUT],
-					g->shared->win, NULL, TRUE);
-			}
 		}
 	}
 
@@ -4387,10 +5987,9 @@ static void gui_window_set_title(struct gui_window *g, const char *restrict titl
 		{
 			if(g->shared->wintitle) free(g->shared->wintitle);
 			g->shared->wintitle = strdup(utf8title);
-			/* Nami has no title bar; keep screen title only */
+			/* Nami has no title bar; session info lives in the screen title */
 			if(g->shared->ui_nami)
-				SetWindowTitles(g->shared->win, (STRPTR)~0,
-						ami_gui_get_screen_title());
+				ami_gui_update_screentitle(g->shared);
 			else
 				SetWindowTitles(g->shared->win, g->shared->wintitle,
 						ami_gui_get_screen_title());
@@ -4416,20 +6015,32 @@ static void gui_window_update_extent(struct gui_window *g)
 
 		if(g->shared->objects[GID_VSCROLL]) {
 			browser_window_get_extents(g->bw, true, &width, &height);
-			RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_VSCROLL],g->shared->win,NULL,
-				SCROLLER_Total, (ULONG)(height),
-				SCROLLER_Visible, bbox->Height,
-			TAG_DONE);
+			if(g->shared->ui_nami) {
+				ami_gui_nami_set_prop(g->shared, g->shared->objects[GID_VSCROLL],
+						&g->shared->nami_vprop_shift,
+						(ULONG)height, (ULONG)bbox->Height, 0, FALSE);
+			} else {
+				RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_VSCROLL],g->shared->win,NULL,
+					SCROLLER_Total, (ULONG)(height),
+					SCROLLER_Visible, bbox->Height,
+				TAG_DONE);
+			}
 		}
 
 		if(g->shared->objects[GID_HSCROLL])
 		{
 			browser_window_get_extents(g->bw, true, &width, &height);
-			RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_HSCROLL],
-				g->shared->win, NULL,
-				SCROLLER_Total, (ULONG)(width),
-				SCROLLER_Visible, bbox->Width,
-				TAG_DONE);
+			if(g->shared->ui_nami) {
+				ami_gui_nami_set_prop(g->shared, g->shared->objects[GID_HSCROLL],
+						&g->shared->nami_hprop_shift,
+						(ULONG)width, (ULONG)bbox->Width, 0, FALSE);
+			} else {
+				RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_HSCROLL],
+					g->shared->win, NULL,
+					SCROLLER_Total, (ULONG)(width),
+					SCROLLER_Visible, bbox->Width,
+					TAG_DONE);
+			}
 		}
 
 		ami_gui_free_space_box(bbox);
@@ -4475,7 +6086,11 @@ static nserror amiga_window_invalidate_area(struct gui_window *g,
 		NSLOG(netsurf, INFO,
 		      "Ignoring duplicate or subset of queued box redraw");
 	}
-	ami_schedule_redraw(g->shared, false);
+	/* Scroll strip invalidates must stay on the interactive budget */
+	if(g->shared->redraw_scroll || g->shared->redraw_interactive)
+		ami_schedule_redraw_interactive(g->shared, false);
+	else
+		ami_schedule_redraw(g->shared, false);
 
 	return NSERROR_OK;
 }
@@ -4528,6 +6143,8 @@ static void ami_switch_tab(struct gui_window_2 *gwin, bool redraw)
 
 		ami_plot_clear_bbox(gwin->win->RPort, bbox);
 		ami_gui_free_space_box(bbox);
+		if(gwin->ui_nami)
+			ami_gui_update_screentitle(gwin);
 		return;
 	}
 
@@ -4561,6 +6178,8 @@ static void ami_switch_tab(struct gui_window_2 *gwin, bool redraw)
 	}
 
 	ami_gui_free_space_box(bbox);
+	if(gwin->ui_nami)
+		ami_gui_update_screentitle(gwin);
 }
 
 void ami_quit_netsurf(void)
@@ -4753,17 +6372,50 @@ static void ami_gui_cache_favicon(nsurl *url, struct bitmap *favicon)
 	}
 }
 
+static void ami_gui_hotlist_toggle_from_url(struct gui_window_2 *gwin)
+{
+	char *storage;
+	nsurl *url;
+
+	if(gwin == NULL || gwin->objects[GID_URL] == NULL)
+		return;
+
+	GetAttr(STRINGA_TextVal,
+		(Object *)gwin->objects[GID_URL],
+		(ULONG *)&storage);
+	if(nsurl_create((const char *)storage, &url) == NSERROR_OK) {
+		if(hotlist_has_url(url)) {
+			hotlist_remove_url(url);
+		} else {
+			hotlist_add_url(url);
+		}
+		nsurl_unref(url);
+	}
+	ami_gui_update_hotlist_button(gwin);
+}
+
 void ami_gui_update_hotlist_button(struct gui_window_2 *gwin)
 {
 	char *url;
 	nsurl *nsurl;
+	BOOL in_hotlist;
+	const char *hint;
+
+	if(gwin == NULL)
+		return;
 
 	GetAttr(STRINGA_TextVal,
 		(Object *)gwin->objects[GID_URL],
 		(ULONG *)&url);
 
-	if(nsurl_create(url, &nsurl) == NSERROR_OK) {
-		if(hotlist_has_url(nsurl)) {
+	if(nsurl_create(url, &nsurl) != NSERROR_OK)
+		return;
+
+	in_hotlist = hotlist_has_url(nsurl) ? TRUE : FALSE;
+
+	if(gwin->objects[GID_FAVE] != NULL) {
+		/* NetSurf: dedicated star button swaps add/remove glyphs */
+		if(in_hotlist) {
 			RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[GID_FAVE], gwin->win, NULL,
 				BUTTON_RenderImage, gwin->objects[GID_FAVE_RMV],
 				GA_HintInfo, gwin->helphints[GID_FAVE_RMV],
@@ -4777,9 +6429,21 @@ void ami_gui_update_hotlist_button(struct gui_window_2 *gwin)
 				GA_HintInfo, gwin->helphints[GID_FAVE_ADD],
 				TAG_DONE);
 		}
-		
-		nsurl_unref(nsurl);
+	} else if(gwin->ui_nami && gwin->objects[GID_ICON] != NULL) {
+		/* Nami: favicon slot is the hotlist control */
+		hint = in_hotlist
+			? gwin->helphints[GID_FAVE_RMV]
+			: gwin->helphints[GID_FAVE_ADD];
+		SetGadgetAttrs((struct Gadget *)gwin->objects[GID_ICON],
+				gwin->win, NULL,
+				GA_HintInfo, hint,
+				TAG_DONE);
+		if(in_hotlist && gwin->gw->favicon)
+			ami_gui_cache_favicon(nsurl, content_get_bitmap(gwin->gw->favicon));
+		gui_window_set_icon(gwin->gw, gwin->gw->favicon);
 	}
+
+	nsurl_unref(nsurl);
 }
 
 static bool ami_gui_hotlist_add(void *userdata, int level, int item,
@@ -5176,6 +6840,7 @@ static void ami_do_redraw_tiled(struct gui_window_2 *gwin, bool busy,
 	struct rect clip;
 	int tile_size_x;
 	int tile_size_y;
+	int step_y;
 
 	ami_plot_ra_get_size(glob, &tile_size_x, &tile_size_y);
 	ami_plot_ra_set_pen_list(glob, gwin->shared_pens);
@@ -5208,11 +6873,24 @@ static void ami_do_redraw_tiled(struct gui_window_2 *gwin, bool busy,
 	if(width <= 0) return;
 	if(height <= 0) return;
 
+	/*
+	 * Even with a screen-sized plot buffer (OS3 tile size 0), paint in
+	 * horizontal strips so we can drain IDCMP between bands. Full-height
+	 * single-pass paint held the UI task for seconds on image-heavy pages.
+	 */
+	step_y = tile_size_y;
+	if(step_y <= 0 || step_y > AMI_PAINT_YIELD_STRIP)
+		step_y = AMI_PAINT_YIELD_STRIP;
+
 	if(busy) ami_set_pointer(gwin, GUI_POINTER_WAIT, false);
 
-	for(y = top; y < (top + height); y += tile_size_y) {
+	ami_gui_paint_depth++;
+
+	for(y = top; y < (top + height); y += step_y) {
 		clip.y0 = 0;
-		clip.y1 = tile_size_y;
+		clip.y1 = step_y;
+		if(clip.y1 > tile_size_y)
+			clip.y1 = tile_size_y;
 		if(clip.y1 > ((top + height) - y)) {
 			clip.y1 = (top + height) - y;
 		}
@@ -5260,7 +6938,17 @@ static void ami_do_redraw_tiled(struct gui_window_2 *gwin, bool busy,
 #endif
 			}
 		}
+
+		/* Let resize / scroll / close land between strips */
+		ami_gui_yield_input();
+		if(gwin->closed || gwin->win == NULL || win_destroyed)
+			break;
 	}
+
+	ami_gui_paint_depth--;
+
+	if(gwin->closed && gwin->win != NULL)
+		ami_gui_close_window(gwin);
 	
 	if(busy) ami_reset_pointer(gwin);
 }
@@ -5357,7 +7045,9 @@ static void ami_refresh_window(struct gui_window_2 *gwin)
 
 	EndRefresh(gwin->win, TRUE);
 
-	ami_gui_free_space_box(bbox);	
+	ami_gui_free_space_box(bbox);
+	if(gwin->ui_nami)
+		ami_gui_nami_paint_chrome_rborder(gwin);
 	ami_reset_pointer(gwin);
 }
 
@@ -5378,10 +7068,9 @@ HOOKF(void, ami_scroller_hook, Object *, object, struct IntuiMessage *)
 			{
 				case GID_HSCROLL:
  				case GID_VSCROLL:
-					if(nsoption_bool(faster_scroll) == true) gwin->redraw_scroll = true;
-						else gwin->redraw_scroll = false;
-
-					ami_schedule_redraw(gwin, true);
+					/* Always ScrollWindowRaster + strip; short coalesce */
+					gwin->redraw_scroll = true;
+					ami_schedule_redraw_interactive(gwin, true);
  				break;
 
 				case GID_TABS:
@@ -5430,6 +7119,8 @@ HOOKF(void, ami_scroller_hook, Object *, object, struct IntuiMessage *)
 			}
 		break;
 		case IDCMP_SIZEVERIFY:
+			/* No longer requested on browser windows — Intuition
+			 * completed the size without waiting on us. */
 		break;
 
 		case IDCMP_REFRESHWINDOW:
@@ -5494,14 +7185,16 @@ gui_window_create(struct browser_window *bw,
 	char tabthrobber[100];
 	ULONG refresh_mode = WA_SmartRefresh;
 	ULONG defer_layout = TRUE;
-	ULONG idcmp_sizeverify = IDCMP_SIZEVERIFY;
+	/* Do not take IDCMP_SIZEVERIFY: Intuition waits for us to reply before
+	 * completing a size change, which freezes resize while paint/layout runs.
+	 */
+	ULONG idcmp_sizeverify = 0;
 
 	NSLOG(netsurf, INFO, "Creating window");
 
 	if (!scrn) ami_openscreenfirst();
 
 	if (nsoption_bool(kiosk_mode)) flags &= ~GW_CREATE_TAB;
-	if (nsoption_bool(resize_with_contents)) idcmp_sizeverify = 0;
 
 	if(existing) {
 		ref = existing->shared->win;
@@ -5619,6 +7312,9 @@ gui_window_create(struct browser_window *bw,
 		return NULL;
 	}
 
+	/* Freeze chrome style before theme/image setup */
+	g->shared->ui_nami = (nsoption_int(ui_style) == 1) ? true : false;
+
 	g->shared->shared_pens = ami_AllocMinList();
 
 	g->shared->scrollerhook.h_Entry = (void *)ami_scroller_hook;
@@ -5702,6 +7398,17 @@ gui_window_create(struct browser_window *bw,
 			translate_escape_chars(messages_get("HelpToolbarURL"));
 		g->shared->helphints[GID_SEARCHSTRING] =
 			translate_escape_chars(messages_get("HelpToolbarWebSearch"));
+		/* Nami omni bar: URL gadget also runs search_web_omni */
+		if(g->shared->ui_nami && g->shared->helphints[GID_URL] != NULL) {
+			char *omni_hint;
+
+			omni_hint = ami_utf8_easy(
+				"Enter a web address or search terms");
+			if(omni_hint != NULL) {
+				ami_utf8_free(g->shared->helphints[GID_URL]);
+				g->shared->helphints[GID_URL] = omni_hint;
+			}
+		}
 		g->shared->helphints[GID_ADDTAB_HINT] =
 			translate_escape_chars(messages_get("HelpToolbarAddTab"));
 
@@ -5729,6 +7436,21 @@ gui_window_create(struct browser_window *bw,
 		ami_get_theme_filename(home, "theme_home", false);
 		ami_get_theme_filename(home_s, "theme_home_s", false);
 		ami_get_theme_filename(home_g, "theme_home_g", false);
+		/* Nami: AISS list_ glyphs (16×16) for back/forward/stop/reload */
+		if(g->shared->ui_nami) {
+			ami_gui_prefer_list_tbimage(nav_west);
+			ami_gui_prefer_list_tbimage(nav_west_s);
+			ami_gui_prefer_list_tbimage(nav_west_g);
+			ami_gui_prefer_list_tbimage(nav_east);
+			ami_gui_prefer_list_tbimage(nav_east_s);
+			ami_gui_prefer_list_tbimage(nav_east_g);
+			ami_gui_prefer_list_tbimage(stop);
+			ami_gui_prefer_list_tbimage(stop_s);
+			ami_gui_prefer_list_tbimage(stop_g);
+			ami_gui_prefer_list_tbimage(reload);
+			ami_gui_prefer_list_tbimage(reload_s);
+			ami_gui_prefer_list_tbimage(reload_g);
+		}
 		ami_get_theme_filename(closetab, "theme_closetab", false);
 		ami_get_theme_filename(closetab_s, "theme_closetab_s", false);
 		ami_get_theme_filename(closetab_g, "theme_closetab_g", false);
@@ -5765,7 +7487,11 @@ gui_window_create(struct browser_window *bw,
 			g->shared->objects[GID_CLOSETAB_BM] = BitMapObj,
 					BITMAP_SourceFile, closetab,
 					BITMAP_SelectSourceFile, closetab_s,
-					BITMAP_DisabledSourceFile, closetab_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_CLOSETAB_BM_G] = BitMapObj,
+					BITMAP_SourceFile, closetab_g,
 					BITMAP_Screen, scrn,
 					BITMAP_Masking, TRUE,
 					BitMapEnd;
@@ -5802,42 +7528,188 @@ gui_window_create(struct browser_window *bw,
 					BitMapEnd;
 
 		/* Toolbar button images — owned separately (button.gadget does
-		 * not dispose BUTTON_RenderImage). Anonymous BitMapObj leaked. */
-		g->shared->objects[GID_BACK_BM] = BitMapObj,
+		 * not dispose BUTTON_RenderImage). */
+		if(g->shared->ui_nami) {
+			char nav_west_h[100], nav_east_h[100];
+			char stop_h[100], reload_h[100], home_h[100];
+
+			/* Nami: normal/_s/_h/_g as distinct BitMapObjs */
+			ami_gui_prefer_list_tbimage(nav_west_s);
+			ami_gui_prefer_list_tbimage(nav_east_s);
+			ami_gui_prefer_list_tbimage(stop_s);
+			ami_gui_prefer_list_tbimage(reload_s);
+			ami_gui_prefer_list_tbimage(home_s);
+			ami_gui_path_aiss_suffix(nav_west_h, sizeof(nav_west_h),
+					nav_west, "_h");
+			ami_gui_path_aiss_suffix(nav_east_h, sizeof(nav_east_h),
+					nav_east, "_h");
+			ami_gui_path_aiss_suffix(stop_h, sizeof(stop_h), stop, "_h");
+			ami_gui_path_aiss_suffix(reload_h, sizeof(reload_h),
+					reload, "_h");
+			ami_gui_path_aiss_suffix(home_h, sizeof(home_h), home, "_h");
+			ami_gui_prefer_list_tbimage(nav_west_h);
+			ami_gui_prefer_list_tbimage(nav_east_h);
+			ami_gui_prefer_list_tbimage(stop_h);
+			ami_gui_prefer_list_tbimage(reload_h);
+			ami_gui_prefer_list_tbimage(home_h);
+
+			g->shared->objects[GID_BACK_BM] = BitMapObj,
+					BITMAP_SourceFile, nav_west,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_BACK_BM_S] = BitMapObj,
+					BITMAP_SourceFile, nav_west_s,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_BACK_BM_H] = BitMapObj,
+					BITMAP_SourceFile, nav_west_h,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_BACK_BM_G] = BitMapObj,
+					BITMAP_SourceFile, nav_west_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_FORWARD_BM] = BitMapObj,
+					BITMAP_SourceFile, nav_east,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_FORWARD_BM_S] = BitMapObj,
+					BITMAP_SourceFile, nav_east_s,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_FORWARD_BM_H] = BitMapObj,
+					BITMAP_SourceFile, nav_east_h,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_FORWARD_BM_G] = BitMapObj,
+					BITMAP_SourceFile, nav_east_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_STOP_BM] = BitMapObj,
+					BITMAP_SourceFile, stop,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_STOP_BM_S] = BitMapObj,
+					BITMAP_SourceFile, stop_s,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_STOP_BM_H] = BitMapObj,
+					BITMAP_SourceFile, stop_h,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_STOP_BM_G] = BitMapObj,
+					BITMAP_SourceFile, stop_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_RELOAD_BM] = BitMapObj,
+					BITMAP_SourceFile, reload,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_RELOAD_BM_S] = BitMapObj,
+					BITMAP_SourceFile, reload_s,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_RELOAD_BM_H] = BitMapObj,
+					BITMAP_SourceFile, reload_h,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_RELOAD_BM_G] = BitMapObj,
+					BITMAP_SourceFile, reload_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_HOME_BM] = BitMapObj,
+					BITMAP_SourceFile, home,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_HOME_BM_S] = BitMapObj,
+					BITMAP_SourceFile, home_s,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_HOME_BM_H] = BitMapObj,
+					BITMAP_SourceFile, home_h,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_HOME_BM_G] = BitMapObj,
+					BITMAP_SourceFile, home_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+		} else {
+			g->shared->objects[GID_BACK_BM] = BitMapObj,
 					BITMAP_SourceFile, nav_west,
 					BITMAP_SelectSourceFile, nav_west_s,
-					BITMAP_DisabledSourceFile, nav_west_g,
 					BITMAP_Screen, scrn,
 					BITMAP_Masking, TRUE,
 					BitMapEnd;
-		g->shared->objects[GID_FORWARD_BM] = BitMapObj,
+			g->shared->objects[GID_BACK_BM_G] = BitMapObj,
+					BITMAP_SourceFile, nav_west_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_FORWARD_BM] = BitMapObj,
 					BITMAP_SourceFile, nav_east,
 					BITMAP_SelectSourceFile, nav_east_s,
-					BITMAP_DisabledSourceFile, nav_east_g,
 					BITMAP_Screen, scrn,
 					BITMAP_Masking, TRUE,
 					BitMapEnd;
-		g->shared->objects[GID_STOP_BM] = BitMapObj,
+			g->shared->objects[GID_FORWARD_BM_G] = BitMapObj,
+					BITMAP_SourceFile, nav_east_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_STOP_BM] = BitMapObj,
 					BITMAP_SourceFile, stop,
 					BITMAP_SelectSourceFile, stop_s,
-					BITMAP_DisabledSourceFile, stop_g,
 					BITMAP_Screen, scrn,
 					BITMAP_Masking, TRUE,
 					BitMapEnd;
-		g->shared->objects[GID_RELOAD_BM] = BitMapObj,
+			g->shared->objects[GID_STOP_BM_G] = BitMapObj,
+					BITMAP_SourceFile, stop_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_RELOAD_BM] = BitMapObj,
 					BITMAP_SourceFile, reload,
 					BITMAP_SelectSourceFile, reload_s,
-					BITMAP_DisabledSourceFile, reload_g,
 					BITMAP_Screen, scrn,
 					BITMAP_Masking, TRUE,
 					BitMapEnd;
-		g->shared->objects[GID_HOME_BM] = BitMapObj,
+			g->shared->objects[GID_RELOAD_BM_G] = BitMapObj,
+					BITMAP_SourceFile, reload_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+			g->shared->objects[GID_HOME_BM] = BitMapObj,
 					BITMAP_SourceFile, home,
 					BITMAP_SelectSourceFile, home_s,
-					BITMAP_DisabledSourceFile, home_g,
 					BITMAP_Screen, scrn,
 					BITMAP_Masking, TRUE,
 					BitMapEnd;
+			g->shared->objects[GID_HOME_BM_G] = BitMapObj,
+					BITMAP_SourceFile, home_g,
+					BITMAP_Screen, scrn,
+					BITMAP_Masking, TRUE,
+					BitMapEnd;
+		}
 
 
 		/* add a new tab tab */
@@ -5895,8 +7767,6 @@ gui_window_create(struct browser_window *bw,
 					BitMapEnd;
 		}
 
-		g->shared->ui_nami = (nsoption_int(ui_style) == 1) ? true : false;
-
 		/* Network LED + boingball spinner (falls back to theme filmstrip).
 		 * boingball.image autodoc omits it, but PENMAP_Palette + MaskBlit
 		 * are required or the class renders a solid black silhouette. */
@@ -5925,7 +7795,8 @@ gui_window_create(struct browser_window *bw,
 			g->shared->throbber_boing = NULL;
 			g->shared->throbber_led_vals[0] = 0;
 			tdri = GetScreenDrawInfo(scrn);
-			if(tdri != NULL) {
+			/* Nami: boingball only. NetSurf: LED lamps + boingball. */
+			if(tdri != NULL && g->shared->ui_nami == false) {
 				/* Compact activity lamps (raw segments), not a clock readout */
 				g->shared->throbber_led = NewObject(NULL, "led.image",
 						SYSIA_DrawInfo, tdri,
@@ -5939,15 +7810,21 @@ gui_window_create(struct browser_window *bw,
 						LED_Raw, TRUE,
 						LED_Values, g->shared->throbber_led_vals,
 						TAG_DONE);
-				FreeScreenDrawInfo(scrn, tdri);
 			}
+			if(tdri != NULL)
+				FreeScreenDrawInfo(scrn, tdri);
 			g->shared->throbber_boing = NewObject(NULL, "boingball.image",
 					PENMAP_Palette, boingball_palette,
 					PENMAP_Screen, scrn,
 					PENMAP_Transparent, TRUE,
 					PENMAP_MaskBlit, TRUE,
 					TAG_DONE);
-			if(g->shared->throbber_led == NULL ||
+			if(g->shared->ui_nami) {
+				/* Boing alone is enough */
+				if(g->shared->throbber_boing == NULL) {
+					/* fall through to theme filmstrip */
+				}
+			} else if(g->shared->throbber_led == NULL ||
 			   g->shared->throbber_boing == NULL) {
 				if(g->shared->throbber_led != NULL) {
 					DisposeObject(g->shared->throbber_led);
@@ -5960,14 +7837,17 @@ gui_window_create(struct browser_window *bw,
 			}
 		}
 
-		throbber_w = (g->shared->throbber_led != NULL &&
-			      g->shared->throbber_boing != NULL)
-			? (14 + 4 + 24)
-			: (ULONG)ami_theme_throbber_get_width();
-		throbber_h = (g->shared->throbber_led != NULL &&
-			      g->shared->throbber_boing != NULL)
-			? 24
-			: (ULONG)ami_theme_throbber_get_height();
+		if(g->shared->throbber_boing != NULL &&
+		   g->shared->throbber_led != NULL) {
+			throbber_w = 14 + 4 + 24;
+			throbber_h = 24;
+		} else if(g->shared->throbber_boing != NULL) {
+			throbber_w = 24;
+			throbber_h = 24;
+		} else {
+			throbber_w = (ULONG)ami_theme_throbber_get_width();
+			throbber_h = (ULONG)ami_theme_throbber_get_height();
+		}
 
 		/*
 		 * Nami chrome: no system title gadgets; close/tabs/zoom/depth row
@@ -5977,17 +7857,70 @@ gui_window_create(struct browser_window *bw,
 			ULONG wa_depth_gad = TRUE;
 			ULONG wa_drag_gad = TRUE;
 			ULONG wa_close_gad = TRUE;
+			ULONG wa_builtin_scroll = TRUE;
+			ULONG wa_size_bright = FALSE;
 			ULONG space_outer = TRUE;
 			ULONG inner_sp_tag = TAG_IGNORE;
 			ULONG inner_sp_val = 0;
 			ULONG btn_bevel_tag = TAG_IGNORE;
 			ULONG btn_bevel_val = 0;
+			ULONG btn_trans_tag = TAG_IGNORE;
+			ULONG btn_trans_val = 0;
 			ULONG chrome_add = TAG_IGNORE;
 			ULONG chrome_wh = TAG_IGNORE;
 			ULONG tl_add = LAYOUT_AddChild;
 			ULONG tl_wh = CHILD_WeightedHeight;
+			ULONG home_add = LAYOUT_AddChild;
+			ULONG home_ww = CHILD_WeightedWidth;
+			ULONG home_wh = CHILD_WeightedHeight;
+			ULONG fave_add = LAYOUT_AddChild;
+			ULONG fave_ww = CHILD_WeightedWidth;
+			ULONG fave_wh = CHILD_WeightedHeight;
+			/* Separate Stop button; Nami folds Stop into Reload slot */
+			ULONG stop_add = LAYOUT_AddChild;
+			ULONG stop_ww = CHILD_WeightedWidth;
+			ULONG stop_wh = CHILD_WeightedHeight;
+			Object *stop_btn = NULL;
+			/* Nami: omni URL only — no search string or provider chooser */
+			ULONG weight_bar_tag = LAYOUT_WeightBar;
+			ULONG weight_bar_val = TRUE;
+			ULONG search_row_add = LAYOUT_AddChild;
+			ULONG search_row_ww_tag = CHILD_WeightedWidth;
+			ULONG search_row_ww = (ULONG)nsoption_int(web_search_width);
+			Object *search_chooser = NULL;
+			Object *search_string = NULL;
+			Object *search_row = NULL;
+			/* Nami: padded hit targets around 16px nav art */
+			ULONG nav_mw_tag = TAG_IGNORE;
+			ULONG nav_mw = 0;
+			ULONG nav_mh_tag = TAG_IGNORE;
+			ULONG nav_mh = 0;
+			ULONG tb_inner_tag = TAG_IGNORE;
+			ULONG tb_inner = 0;
+#ifndef __amigaos4__
+			/* OS3 status string at bottom — omitted in Nami (screen title) */
+			ULONG status_add = LAYOUT_AddChild;
+			Object *status_gad = NULL;
+#endif
 			Object *chrome_obj = NULL;
 			Object *tl_obj = NULL;
+			Object *home_btn = NULL;
+			Object *fave_btn = NULL;
+			Object *back_init_bm;
+			Object *fwd_init_bm;
+			/* Favicon slot: Nami makes it the hotlist control */
+			ULONG icon_relverify = FALSE;
+			ULONG icon_readonly = TRUE;
+			ULONG icon_hint_tag = TAG_IGNORE;
+			STRPTR icon_hint = NULL;
+
+			/* AISS _g art for initially unavailable history buttons */
+			back_init_bm = g->shared->objects[GID_BACK_BM_G];
+			if(back_init_bm == NULL)
+				back_init_bm = g->shared->objects[GID_BACK_BM];
+			fwd_init_bm = g->shared->objects[GID_FORWARD_BM_G];
+			if(fwd_init_bm == NULL)
+				fwd_init_bm = g->shared->objects[GID_FORWARD_BM];
 
 			/* OS3 has no WA_ZoomGadget; zoom appears only with Size+Depth.
 			 * Nami clears Depth so the system zoom gadget stays off. */
@@ -5995,13 +7928,52 @@ gui_window_create(struct browser_window *bw,
 				wa_depth_gad = FALSE;
 				wa_drag_gad = FALSE;
 				wa_close_gad = FALSE;
+				/* Border HTML scrollers; do not let window.class scroll the layout */
+				wa_builtin_scroll = FALSE;
+				/* SizeBRight + SizeBBottom so RelRight/RelBottom scrollers fit */
+				wa_size_bright = TRUE;
 				/* Flush chrome to the window inner edges (no outer pad). */
 				space_outer = FALSE;
 				inner_sp_tag = LAYOUT_InnerSpacing;
 				inner_sp_val = 0;
-				/* Toolbar image buttons: no bevel; string gadgets keep theirs. */
+				/* Toolbar image buttons: no bevel; string gadgets keep theirs.
+				 * Transparent avoids selected blue fill — Nami drives recessed
+				 * BVS_FIELD + _s/_h art itself. */
 				btn_bevel_tag = BUTTON_BevelStyle;
 				btn_bevel_val = BVS_NONE;
+				btn_trans_tag = BUTTON_Transparent;
+				btn_trans_val = TRUE;
+				/* 16px art with room around each nav button */
+				nav_mw_tag = CHILD_MinWidth;
+				nav_mw = 24;
+				nav_mh_tag = CHILD_MinHeight;
+				nav_mh = 24;
+				tb_inner_tag = LAYOUT_InnerSpacing;
+				tb_inner = 2;
+				/* Nami toolbar omits Home, hotlist star, and separate Stop */
+				home_add = TAG_IGNORE;
+				home_ww = TAG_IGNORE;
+				home_wh = TAG_IGNORE;
+				fave_add = TAG_IGNORE;
+				fave_ww = TAG_IGNORE;
+				fave_wh = TAG_IGNORE;
+				stop_add = TAG_IGNORE;
+				stop_ww = TAG_IGNORE;
+				stop_wh = TAG_IGNORE;
+				/* Favicon space doubles as +hotlist / remove-hotlist */
+				icon_relverify = TRUE;
+				icon_readonly = FALSE;
+				icon_hint_tag = GA_HintInfo;
+				icon_hint = g->shared->helphints[GID_FAVE_ADD];
+				/* Omni bar only — no search string, no provider chooser */
+				weight_bar_tag = TAG_IGNORE;
+				weight_bar_val = 0;
+				search_row_add = TAG_IGNORE;
+				search_row_ww_tag = TAG_IGNORE;
+				search_row_ww = 0;
+#ifndef __amigaos4__
+				status_add = TAG_IGNORE;
+#endif
 
 				/* Standalone tab-close is NetSurf-layout only; window
 				 * close is GID_WIN_CLOSE and per-tab closes are in clicktab. */
@@ -6061,13 +8033,18 @@ gui_window_create(struct browser_window *bw,
 				g->shared->chrome_drag_hook.h_Entry =
 					(void *)ami_gui_chrome_drag_render_hook;
 				g->shared->chrome_drag_hook.h_Data = g->shared;
-				g->shared->chrome_backfill_hook.h_Entry =
-					(void *)ami_gui_chrome_layout_backfill;
-				g->shared->chrome_backfill_hook.h_Data = g->shared;
+
+				/* Tab bar only — no PageGroup, so no PageGroupBackFill
+				 * (that tag paints the page body and spills into the toolbar). */
+				if(g->shared->objects[GID_TABS] != NULL) {
+					SetAttrs(g->shared->objects[GID_TABS],
+							CLICKTAB_PageGroupBorder, FALSE,
+							TAG_DONE);
+				}
 
 				{
 					struct Image *cim;
-					ULONG cw, ch, zw, zh, dw, dh;
+					ULONG cw, ch, zw, zh, dw, pad;
 
 					cim = (struct Image *)g->shared->objects[GID_WIN_CLOSE_BM];
 					cw = (cim != NULL && cim->Width > 0) ? (ULONG)cim->Width : 16;
@@ -6077,18 +8054,21 @@ gui_window_create(struct browser_window *bw,
 					zh = (cim != NULL && cim->Height > 0) ? (ULONG)cim->Height : 16;
 					cim = (struct Image *)g->shared->objects[GID_WIN_DEPTH_BM];
 					dw = (cim != NULL && cim->Width > 0) ? (ULONG)cim->Width : 16;
-					dh = (cim != NULL && cim->Height > 0) ? (ULONG)cim->Height : 16;
+					/* Depth often wider than SizeBRight — reserve overhang for zoom */
+					pad = 0;
+					if(dw > 16)
+						pad = dw - 16;
 
-					/* Backfill strip matches sysi chrome button height */
-					g->shared->chrome_row_h = (WORD)ch;
-
-					/* Close | Tabs(fill) | Drag(thin strip) | Zoom | Depth */
+					/*
+					 * Close | Tabs(fill) | Drag | Zoom | pad.
+					 * Depth is AddGList'd into SizeBRight (may overhang left);
+					 * pad keeps zoom clear of that overhang.
+					 */
 					g->shared->objects[GID_CHROMELAYOUT] = LayoutHObj,
 						LAYOUT_SpaceInner, FALSE,
 						LAYOUT_SpaceOuter, FALSE,
 						LAYOUT_InnerSpacing, 0,
 						LAYOUT_VertAlignment, LALIGN_TOP,
-						LAYOUT_BackFill, &g->shared->chrome_backfill_hook,
 						LAYOUT_AddChild, g->shared->objects[GID_WIN_CLOSE] = SpaceObj,
 							GA_ID, GID_WIN_CLOSE,
 							SPACE_MinWidth, cw,
@@ -6102,7 +8082,7 @@ gui_window_create(struct browser_window *bw,
 						LAYOUT_AddChild, g->shared->objects[GID_TABS],
 						CHILD_CacheDomain, FALSE,
 						CHILD_WeightedWidth, 100,
-						CHILD_MaxHeight, ch,
+						CHILD_WeightedHeight, 0,
 						LAYOUT_AddChild, g->shared->objects[GID_WIN_DRAG] = SpaceObj,
 							GA_ID, GID_WIN_DRAG,
 							SPACE_MinWidth, 24,
@@ -6123,15 +8103,15 @@ gui_window_create(struct browser_window *bw,
 						CHILD_WeightedWidth, 0,
 						CHILD_WeightedHeight, 0,
 						CHILD_MaxHeight, ch,
-						LAYOUT_AddChild, g->shared->objects[GID_WIN_DEPTH] = SpaceObj,
-							GA_ID, GID_WIN_DEPTH,
-							SPACE_MinWidth, dw,
-							SPACE_MinHeight, dh,
-							SPACE_Transparent, FALSE,
-							SPACE_RenderHook, &g->shared->chrome_depth_hook,
+						LAYOUT_AddChild, g->shared->objects[GID_CHROME_RPAD] = SpaceObj,
+							SPACE_MinWidth, pad,
+							SPACE_MinHeight, ch,
+							SPACE_Transparent, TRUE,
 						SpaceEnd,
 						CHILD_WeightedWidth, 0,
 						CHILD_WeightedHeight, 0,
+						CHILD_MinWidth, pad,
+						CHILD_MaxWidth, pad,
 						CHILD_MaxHeight, ch,
 					LayoutEnd;
 				}
@@ -6158,6 +8138,82 @@ gui_window_create(struct browser_window *bw,
 				tl_obj = g->shared->objects[GID_TABLAYOUT];
 			}
 
+			/* Pre-build optional toolbar buttons so Nami can omit them. */
+			if(home_add == LAYOUT_AddChild) {
+				home_btn = ButtonObj,
+					GA_ID, GID_HOME,
+					GA_RelVerify, TRUE,
+					GA_HintInfo, g->shared->helphints[GID_HOME],
+					btn_bevel_tag, btn_bevel_val,
+					btn_trans_tag, btn_trans_val,
+					BUTTON_RenderImage, g->shared->objects[GID_HOME_BM],
+				ButtonEnd;
+				g->shared->objects[GID_HOME] = home_btn;
+			}
+			if(fave_add == LAYOUT_AddChild) {
+				fave_btn = ButtonObj,
+					GA_ID, GID_FAVE,
+					GA_RelVerify, TRUE,
+					btn_bevel_tag, btn_bevel_val,
+					BUTTON_RenderImage, g->shared->objects[GID_FAVE_ADD],
+				ButtonEnd;
+				g->shared->objects[GID_FAVE] = fave_btn;
+			}
+			if(stop_add == LAYOUT_AddChild) {
+				stop_btn = ButtonObj,
+					GA_ID, GID_STOP,
+					GA_RelVerify, TRUE,
+					GA_HintInfo, g->shared->helphints[GID_STOP],
+					btn_bevel_tag, btn_bevel_val,
+					btn_trans_tag, btn_trans_val,
+					BUTTON_RenderImage, g->shared->objects[GID_STOP_BM],
+				ButtonEnd;
+				g->shared->objects[GID_STOP] = stop_btn;
+			}
+#ifndef __amigaos4__
+			/* Classic OS3 status strip; Nami uses the Intuition screen title */
+			if(status_add == LAYOUT_AddChild) {
+				status_gad = StringObj,
+					GA_ID, GID_STATUS,
+					GA_ReadOnly, TRUE,
+					STRINGA_TextVal, NULL,
+					GA_RelVerify, TRUE,
+				StringEnd;
+				g->shared->objects[GID_STATUS] = status_gad;
+			}
+#endif
+
+			/* Search provider chooser + string — NetSurf only.
+			 * Nami omni bar uses Prefs search provider with no chooser UI. */
+			if(search_row_add == LAYOUT_AddChild) {
+				search_chooser = ChooserObj,
+					GA_ID, GID_SEARCH_ICON,
+					GA_RelVerify, TRUE,
+					CHOOSER_DropDown, TRUE,
+					CHOOSER_Labels, g->shared->web_search_list,
+					CHOOSER_MaxLabels, 40,
+				ChooserEnd;
+				g->shared->objects[GID_SEARCH_ICON] = search_chooser;
+
+				search_string = StringObj,
+					GA_ID, GID_SEARCHSTRING,
+					STRINGA_TextVal, NULL,
+					GA_RelVerify, TRUE,
+					GA_HintInfo, g->shared->helphints[GID_SEARCHSTRING],
+				StringEnd;
+				g->shared->objects[GID_SEARCHSTRING] = search_string;
+				search_row = LayoutHObj,
+					LAYOUT_VertAlignment, LALIGN_CENTER,
+					LAYOUT_AddChild, search_chooser,
+					CHILD_WeightedWidth, 0,
+					CHILD_WeightedHeight, 0,
+					LAYOUT_AddChild, search_string,
+				LayoutEnd;
+			} else {
+				g->shared->objects[GID_SEARCH_ICON] = NULL;
+				g->shared->objects[GID_SEARCHSTRING] = NULL;
+			}
+
 		NSLOG(netsurf, INFO, "Creating window object");
 
 		g->shared->objects[OID_MAIN] = WindowObj,
@@ -6167,6 +8223,7 @@ gui_window_create(struct browser_window *bw,
 			WA_DragBar, wa_drag_gad,
 			WA_CloseGadget, wa_close_gad,
 			WA_SizeGadget, TRUE,
+			WA_SizeBRight, wa_size_bright,
 			WA_PubScreen,scrn,
 			WA_ReportMouse,TRUE,
 			refresh_mode, TRUE,
@@ -6177,7 +8234,8 @@ gui_window_create(struct browser_window *bw,
 				IDCMP_RAWKEY | idcmp_sizeverify |
 				IDCMP_GADGETUP | IDCMP_GADGETDOWN | IDCMP_IDCMPUPDATE |
 				IDCMP_REFRESHWINDOW |
-				IDCMP_ACTIVEWINDOW | IDCMP_EXTENDEDMOUSE,
+				IDCMP_ACTIVEWINDOW | IDCMP_INTUITICKS |
+				IDCMP_EXTENDEDMOUSE,
 			WINDOW_Position, WPOS_FULLSCREEN,
 			WINDOW_RefWindow, ref,
 			WINDOW_IconifyGadget, iconifygadget,
@@ -6186,9 +8244,9 @@ gui_window_create(struct browser_window *bw,
 			WINDOW_NewPrefsHook, &newprefs_hook,
 			WINDOW_IDCMPHook, &g->shared->scrollerhook,
 			WINDOW_IDCMPHookBits, IDCMP_IDCMPUPDATE | IDCMP_REFRESHWINDOW |
-						IDCMP_EXTENDEDMOUSE | IDCMP_SIZEVERIFY,
+						IDCMP_EXTENDEDMOUSE,
 			WINDOW_SharedPort, sport,
-			WINDOW_BuiltInScroll, TRUE,
+			WINDOW_BuiltInScroll, wa_builtin_scroll,
 			WINDOW_GadgetHelp, TRUE,
 #ifdef __amigaos4__
 			WINDOW_UniqueID, "NS_MAIN_WIN",
@@ -6203,72 +8261,74 @@ gui_window_create(struct browser_window *bw,
 				chrome_wh, 0,
 				LAYOUT_AddChild, g->shared->objects[GID_TOOLBARLAYOUT] = LayoutHObj,
 					LAYOUT_VertAlignment, LALIGN_CENTER,
+					tb_inner_tag, tb_inner,
 					LAYOUT_AddChild, g->shared->objects[GID_BACK] = ButtonObj,
 						GA_ID, GID_BACK,
 						GA_RelVerify, TRUE,
-						GA_Disabled, TRUE,
+						GA_ReadOnly, TRUE,
 						GA_ContextMenu, ami_ctxmenu_history_create(AMI_CTXMENU_HISTORY_BACK, g->shared),
 						GA_HintInfo, g->shared->helphints[GID_BACK],
 						btn_bevel_tag, btn_bevel_val,
-						BUTTON_RenderImage, g->shared->objects[GID_BACK_BM],
+						btn_trans_tag, btn_trans_val,
+						BUTTON_RenderImage, back_init_bm,
 					ButtonEnd,
 					CHILD_WeightedWidth,0,
 					CHILD_WeightedHeight,0,
+					nav_mw_tag, nav_mw,
+					nav_mh_tag, nav_mh,
 					LAYOUT_AddChild, g->shared->objects[GID_FORWARD] = ButtonObj,
 						GA_ID, GID_FORWARD,
 						GA_RelVerify, TRUE,
-						GA_Disabled, TRUE,
+						GA_ReadOnly, TRUE,
 						GA_ContextMenu, ami_ctxmenu_history_create(AMI_CTXMENU_HISTORY_FORWARD, g->shared),
 						GA_HintInfo, g->shared->helphints[GID_FORWARD],
 						btn_bevel_tag, btn_bevel_val,
-						BUTTON_RenderImage, g->shared->objects[GID_FORWARD_BM],
+						btn_trans_tag, btn_trans_val,
+						BUTTON_RenderImage, fwd_init_bm,
 					ButtonEnd,
 					CHILD_WeightedWidth,0,
 					CHILD_WeightedHeight,0,
-					LAYOUT_AddChild, g->shared->objects[GID_STOP] = ButtonObj,
-						GA_ID,GID_STOP,
-						GA_RelVerify,TRUE,
-						GA_HintInfo, g->shared->helphints[GID_STOP],
-						btn_bevel_tag, btn_bevel_val,
-						BUTTON_RenderImage, g->shared->objects[GID_STOP_BM],
-					ButtonEnd,
-					CHILD_WeightedWidth,0,
-					CHILD_WeightedHeight,0,
+					nav_mw_tag, nav_mw,
+					nav_mh_tag, nav_mh,
+					stop_add, stop_btn,
+					stop_ww, 0,
+					stop_wh, 0,
 					LAYOUT_AddChild, g->shared->objects[GID_RELOAD] = ButtonObj,
 						GA_ID,GID_RELOAD,
 						GA_RelVerify,TRUE,
 						GA_HintInfo, g->shared->helphints[GID_RELOAD],
 						btn_bevel_tag, btn_bevel_val,
+						btn_trans_tag, btn_trans_val,
 						BUTTON_RenderImage, g->shared->objects[GID_RELOAD_BM],
 					ButtonEnd,
 					CHILD_WeightedWidth,0,
 					CHILD_WeightedHeight,0,
-					LAYOUT_AddChild, g->shared->objects[GID_HOME] = ButtonObj,
-						GA_ID,GID_HOME,
-						GA_RelVerify,TRUE,
-						GA_HintInfo, g->shared->helphints[GID_HOME],
-						btn_bevel_tag, btn_bevel_val,
-						BUTTON_RenderImage, g->shared->objects[GID_HOME_BM],
-					ButtonEnd,
-					CHILD_WeightedWidth,0,
-					CHILD_WeightedHeight,0,
-					LAYOUT_AddChild, LayoutHObj, /* FavIcon, URL bar and hotlist star */
+					nav_mw_tag, nav_mw,
+					nav_mh_tag, nav_mh,
+					home_add, home_btn,
+					home_ww, 0,
+					home_wh, 0,
+					/* Gap: nav buttons → URL / page-info cluster */
+					LAYOUT_AddChild, SpaceObj,
+						SPACE_MinWidth, AMI_TB_GROUP_GAP,
+						SPACE_MinHeight, 1,
+						SPACE_Transparent, TRUE,
+						GA_ReadOnly, TRUE,
+					SpaceEnd,
+					CHILD_WeightedWidth, 0,
+					CHILD_WeightedHeight, 0,
+					LAYOUT_AddChild, LayoutHObj, /* FavIcon, URL, padlock [, star] */
 						LAYOUT_VertAlignment, LALIGN_CENTER,
 						LAYOUT_AddChild, g->shared->objects[GID_ICON] = SpaceObj,
 							GA_ID, GID_ICON,
 							SPACE_MinWidth, 16,
 							SPACE_MinHeight, 16,
 							SPACE_Transparent, TRUE,
+							SPACE_RenderHook, &g->shared->favicon_hook,
+							GA_RelVerify, icon_relverify,
+							GA_ReadOnly, icon_readonly,
+							icon_hint_tag, icon_hint,
 						SpaceEnd,
-						CHILD_WeightedWidth, 0,
-						CHILD_WeightedHeight, 0,
-						LAYOUT_AddChild, g->shared->objects[GID_PAGEINFO] = ButtonObj,
-							GA_ID, GID_PAGEINFO,
-							GA_RelVerify, TRUE,
-							GA_ReadOnly, FALSE,
-							btn_bevel_tag, btn_bevel_val,
-							BUTTON_RenderImage, g->shared->objects[GID_PAGEINFO_INTERNAL_BM],
-						ButtonEnd,
 						CHILD_WeightedWidth, 0,
 						CHILD_WeightedHeight, 0,
 						LAYOUT_AddChild, g->shared->objects[GID_URL] =
@@ -6287,39 +8347,32 @@ gui_window_create(struct browser_window *bw,
 									STRINGVIEW_Header, URLHistory_GetList(),
 #endif
 							TAG_DONE),
-						LAYOUT_AddChild, g->shared->objects[GID_FAVE] = ButtonObj,
-							GA_ID, GID_FAVE,
+						LAYOUT_AddChild, g->shared->objects[GID_PAGEINFO] = ButtonObj,
+							GA_ID, GID_PAGEINFO,
 							GA_RelVerify, TRUE,
-						//	GA_HintInfo, g->shared->helphints[GID_FAVE],
+							GA_ReadOnly, FALSE,
 							btn_bevel_tag, btn_bevel_val,
-							BUTTON_RenderImage, g->shared->objects[GID_FAVE_ADD],
+							btn_trans_tag, btn_trans_val,
+							BUTTON_RenderImage, g->shared->objects[GID_PAGEINFO_INTERNAL_BM],
 						ButtonEnd,
 						CHILD_WeightedWidth, 0,
 						CHILD_WeightedHeight, 0,
+						fave_add, fave_btn,
+						fave_ww, 0,
+						fave_wh, 0,
 					LayoutEnd,
-				//	GA_ID, GID_TOOLBARLAYOUT,
-				//	GA_RelVerify, TRUE,
-				//	LAYOUT_RelVerify, TRUE,
-					LAYOUT_WeightBar, TRUE,
-					LAYOUT_AddChild, LayoutHObj,
-						LAYOUT_VertAlignment, LALIGN_CENTER,
-						LAYOUT_AddChild, g->shared->objects[GID_SEARCH_ICON] = ChooserObj,
-							GA_ID, GID_SEARCH_ICON,
-							GA_RelVerify, TRUE,
-							CHOOSER_DropDown, TRUE,
-							CHOOSER_Labels, g->shared->web_search_list,
-							CHOOSER_MaxLabels, 40, /* Same as options GUI */
-						ChooserEnd,
-						CHILD_WeightedWidth,0,
-						CHILD_WeightedHeight,0,
-						LAYOUT_AddChild, g->shared->objects[GID_SEARCHSTRING] = StringObj,
-							GA_ID,GID_SEARCHSTRING,
-                 					STRINGA_TextVal, NULL,
-							GA_RelVerify,TRUE,
-							GA_HintInfo, g->shared->helphints[GID_SEARCHSTRING],
-						StringEnd,
-					LayoutEnd,
-					CHILD_WeightedWidth, nsoption_int(web_search_width),
+					weight_bar_tag, weight_bar_val,
+					search_row_add, search_row,
+					search_row_ww_tag, search_row_ww,
+					/* Gap: URL/search cluster → throbber */
+					LAYOUT_AddChild, SpaceObj,
+						SPACE_MinWidth, AMI_TB_GROUP_GAP,
+						SPACE_MinHeight, 1,
+						SPACE_Transparent, TRUE,
+						GA_ReadOnly, TRUE,
+					SpaceEnd,
+					CHILD_WeightedWidth, 0,
+					CHILD_WeightedHeight, 0,
 					LAYOUT_AddChild, g->shared->objects[GID_THROBBER] = SpaceObj,
 						GA_ID,GID_THROBBER,
 						SPACE_MinWidth, throbber_w,
@@ -6359,12 +8412,7 @@ gui_window_create(struct browser_window *bw,
 					EndGroup,
 					CHILD_WeightedHeight, 0,
 #ifndef __amigaos4__
-					LAYOUT_AddChild, g->shared->objects[GID_STATUS] = StringObj,
-						GA_ID, GID_STATUS,
-							GA_ReadOnly, TRUE,
-             				STRINGA_TextVal, NULL,
-						GA_RelVerify, TRUE,
-					StringEnd,
+					status_add, status_gad,
 #endif
 				EndGroup,
 			EndGroup,
@@ -6440,6 +8488,8 @@ gui_window_create(struct browser_window *bw,
 	if(nsoption_bool(kiosk_mode) == false)
 	{
 #ifdef __amigaos4__
+		/* NetSurf layout: bottom-border status gauge. Nami puts status in the screen title. */
+		if(g->shared->ui_nami == false) {
 		ULONG width, height;
 		struct DrawInfo *dri = GetScreenDrawInfo(scrn);
 		
@@ -6485,11 +8535,18 @@ gui_window_create(struct browser_window *bw,
 				g->shared->win, NULL);
 				
 		FreeScreenDrawInfo(scrn, dri);
+		}
 #endif //__amigaos4__				
-		ami_gui_hotlist_toolbar_add(g->shared); /* is this the right place for this? */
+		if(g->shared->ui_nami == false)
+			ami_gui_hotlist_toolbar_add(g->shared);
 		if(g->shared->ui_nami == false &&
 		   nsoption_bool(tab_always_show))
 			ami_toggletabbar(g->shared, true);
+		if(g->shared->ui_nami) {
+			ami_update_buttons(g->shared);
+			ami_gui_nami_create_border_scrollers(g->shared);
+			ami_gui_update_screentitle(g->shared);
+		}
 	}
 
 	g->shared->gw = g;
@@ -6644,14 +8701,6 @@ static void gui_window_destroy(struct gui_window *g)
 	/* Cancel throbber before disposing LED/boingball images */
 	ami_throbber_redraw_schedule(-1, g);
 
-	/* Drop chrome backfill before layout dispose (hook lives in gwin) */
-	if(g->shared->objects[GID_CHROMELAYOUT] != NULL && g->shared->win != NULL) {
-		SetGadgetAttrs((struct Gadget *)g->shared->objects[GID_CHROMELAYOUT],
-				g->shared->win, NULL,
-				LAYOUT_BackFill, NULL,
-				TAG_DONE);
-	}
-
 	/* Detach and dispose tab-close image before disposing the window */
 	if(g->shared->objects[GID_CLOSETAB_BM] != NULL && g->shared->win != NULL) {
 		if(g->shared->objects[GID_TABS] != NULL) {
@@ -6667,16 +8716,24 @@ static void gui_window_destroy(struct gui_window *g)
 					TAG_DONE);
 		}
 		DisposeObject(g->shared->objects[GID_CLOSETAB_BM]);
+		DisposeObject(g->shared->objects[GID_CLOSETAB_BM_G]);
 		g->shared->objects[GID_CLOSETAB_BM] = NULL;
+		g->shared->objects[GID_CLOSETAB_BM_G] = NULL;
 	}
+
+	/* Detach Nami border scrollers/depth before disposing the window object.
+	 * Clears GA_Image on buttongclass first to avoid double-free of sysi. */
+	if(g->shared->ui_nami)
+		ami_gui_nami_destroy_border_scrollers(g->shared);
 
 	DisposeObject(g->shared->objects[OID_MAIN]);
 	g->shared->objects[OID_MAIN] = NULL;
-	/* Buttons are gone; clear chrome button slots before freeing images */
+	/* Layout chrome slots were owned by the window object */
 	g->shared->objects[GID_WIN_CLOSE] = NULL;
 	g->shared->objects[GID_WIN_ZOOM] = NULL;
 	g->shared->objects[GID_WIN_DEPTH] = NULL;
 	g->shared->objects[GID_WIN_DRAG] = NULL;
+	g->shared->objects[GID_CHROME_RPAD] = NULL;
 	g->shared->objects[GID_CHROMELAYOUT] = NULL;
 	g->shared->objects[GID_TABLAYOUT] = NULL;
 	g->shared->objects[GID_TABS] = NULL;
@@ -6697,10 +8754,25 @@ static void gui_window_destroy(struct gui_window *g)
 
 	/* button.gadget does not dispose BUTTON_RenderImage objects */
 	DisposeObject(g->shared->objects[GID_BACK_BM]);
+	DisposeObject(g->shared->objects[GID_BACK_BM_S]);
+	DisposeObject(g->shared->objects[GID_BACK_BM_H]);
+	DisposeObject(g->shared->objects[GID_BACK_BM_G]);
 	DisposeObject(g->shared->objects[GID_FORWARD_BM]);
+	DisposeObject(g->shared->objects[GID_FORWARD_BM_S]);
+	DisposeObject(g->shared->objects[GID_FORWARD_BM_H]);
+	DisposeObject(g->shared->objects[GID_FORWARD_BM_G]);
 	DisposeObject(g->shared->objects[GID_STOP_BM]);
+	DisposeObject(g->shared->objects[GID_STOP_BM_S]);
+	DisposeObject(g->shared->objects[GID_STOP_BM_H]);
+	DisposeObject(g->shared->objects[GID_STOP_BM_G]);
 	DisposeObject(g->shared->objects[GID_RELOAD_BM]);
+	DisposeObject(g->shared->objects[GID_RELOAD_BM_S]);
+	DisposeObject(g->shared->objects[GID_RELOAD_BM_H]);
+	DisposeObject(g->shared->objects[GID_RELOAD_BM_G]);
 	DisposeObject(g->shared->objects[GID_HOME_BM]);
+	DisposeObject(g->shared->objects[GID_HOME_BM_S]);
+	DisposeObject(g->shared->objects[GID_HOME_BM_H]);
+	DisposeObject(g->shared->objects[GID_HOME_BM_G]);
 	DisposeObject(g->shared->objects[GID_TABS_FLAG]);
 	/* Chrome sysi images — clear slots so a second open cannot double-free */
 	DisposeObject(g->shared->objects[GID_WIN_CLOSE_BM]);
@@ -6734,6 +8806,12 @@ static void gui_window_destroy(struct gui_window *g)
 
 	free(g->shared->wintitle);
 	ami_utf8_free(g->shared->status);
+	if(ami_last_screentitle_gwin == g->shared)
+		ami_last_screentitle_gwin = NULL;
+	if(g->shared->screentitle) {
+		free(g->shared->screentitle);
+		g->shared->screentitle = NULL;
+	}
 	free(g->shared->svbuffer);
 	FreeClickTabNode(g->shared->new_tab_tab);
 
@@ -6763,11 +8841,27 @@ static void ami_redraw_callback(void *p)
 {
 	struct gui_window_2 *gwin = (struct gui_window_2 *)p;
 
+	/*
+	 * Full redraw discards deferred boxes (already painted). Do not
+	 * also paint deferred fragments in the same tick — that re-blitted
+	 * the same images after a full paint. If the document is not ready,
+	 * leave deferred queued and retry via redraw_required.
+	 */
 	if(gwin->redraw_required) {
 		ami_do_redraw(gwin);
+		if(gwin->redraw_required == false) {
+			if(gwin->gw->c_h) {
+				gui_window_place_caret(gwin->gw, gwin->gw->c_x,
+					gwin->gw->c_y, gwin->gw->c_h, NULL);
+			}
+			return;
+		}
+		/* Not ready yet — do not paint stale deferred strips. */
+		return;
 	}
 
 	ami_gui_window_update_box_deferred(gwin->gw, true);
+	gwin->redraw_interactive = false;
 
 	if(gwin->gw->c_h)
 	{
@@ -6783,13 +8877,34 @@ static void ami_redraw_callback(void *p)
  * \param  full_redraw  set to true to schedule a full redraw,
                         should only be set to false when called from amiga_window_invalidate_area()
  */
-void ami_schedule_redraw(struct gui_window_2 *gwin, bool full_redraw)
+static void ami_schedule_redraw_ex(struct gui_window_2 *gwin, bool full_redraw,
+		bool interactive)
 {
-	/* Brief delay so CONTENT_MSG_REDRAW boxes coalesce into one paint */
-	int ms = 20;
+	int ms;
+
+	if(interactive) {
+		ms = AMI_REDRAW_INTERACTIVE_MS;
+		gwin->redraw_interactive = true;
+	} else if(gwin->redraw_interactive) {
+		/* Content settle arrived while interactive paint pending —
+		 * keep the short timer so scroll/resize stay snappy. */
+		ms = AMI_REDRAW_INTERACTIVE_MS;
+	} else {
+		ms = AMI_REDRAW_CONTENT_MS;
+	}
 
 	if(full_redraw) gwin->redraw_required = true;
 	ami_schedule(ms, ami_redraw_callback, gwin);
+}
+
+void ami_schedule_redraw(struct gui_window_2 *gwin, bool full_redraw)
+{
+	ami_schedule_redraw_ex(gwin, full_redraw, false);
+}
+
+void ami_schedule_redraw_interactive(struct gui_window_2 *gwin, bool full_redraw)
+{
+	ami_schedule_redraw_ex(gwin, full_redraw, true);
 }
 
 static void ami_schedule_redraw_remove(struct gui_window_2 *gwin)
@@ -6804,11 +8919,18 @@ static void ami_gui_window_update_box_deferred(struct gui_window *g, bool draw)
 	struct rect *rect;
 	struct rect union_rect;
 	BOOL have_union;
+	struct IBox *bbox;
+	LONG view_w, view_h, union_w, union_h;
 
 	if(!g) return;
 	if(IsMinListEmpty(g->deferred_rects)) return;
 
 	have_union = FALSE;
+	bbox = NULL;
+	view_w = 0;
+	view_h = 0;
+	union_w = 0;
+	union_h = 0;
 
 	if(draw == true) {
 		ami_set_pointer(g->shared, GUI_POINTER_WAIT, false);
@@ -6842,6 +8964,32 @@ static void ami_gui_window_update_box_deferred(struct gui_window *g, bool draw)
 	} while((node = nnode));
 
 	if((draw == true) && (have_union == TRUE)) {
+		/*
+		 * Near-full unions re-blit almost everything strip-by-strip.
+		 * Promote only when the union covers ~90% of both axes —
+		 * half-view promotion was forcing a second full paint on
+		 * news pages after images already filled most of the view.
+		 */
+		if(ami_gui_get_space_box((Object *)g->shared->objects[GID_BROWSER],
+					&bbox) == NSERROR_OK) {
+			view_w = bbox->Width;
+			view_h = bbox->Height;
+			ami_gui_free_space_box(bbox);
+			union_w = union_rect.x1 - union_rect.x0;
+			union_h = union_rect.y1 - union_rect.y0;
+			if(view_w > 0 && view_h > 0 &&
+			   (union_w * 10 >= view_w * 9) &&
+			   (union_h * 10 >= view_h * 9)) {
+				NSLOG(netsurf, INFO,
+				      "Deferred union %ldx%ld >= 90%% view "
+				      "%ldx%ld — full redraw",
+				      (long)union_w, (long)union_h,
+				      (long)view_w, (long)view_h);
+				ami_schedule_redraw(g->shared, true);
+				ami_reset_pointer(g->shared);
+				return;
+			}
+		}
 		ami_do_redraw_limits(g, g->bw, false,
 			union_rect.x0, union_rect.y0,
 			union_rect.x1, union_rect.y1);
@@ -6978,6 +9126,9 @@ static void ami_do_redraw(struct gui_window_2 *gwin)
 	gwin->oldv = vcurrent;
 
 	gwin->redraw_scroll = false;
+	/* Keep interactive coalesce if strip invalidates are still queued */
+	if(gwin->gw == NULL || IsMinListEmpty(gwin->gw->deferred_rects))
+		gwin->redraw_interactive = false;
 	gwin->redraw_required = false;
 	gwin->new_content = false;
 
@@ -6989,7 +9140,10 @@ static void ami_get_hscroll_pos(struct gui_window_2 *gwin, ULONG *xs)
 {
 	if(gwin->objects[GID_HSCROLL])
 	{
-		GetAttr(SCROLLER_Top, (Object *)gwin->objects[GID_HSCROLL], xs);
+		GetAttr(gwin->ui_nami ? PGA_Top : SCROLLER_Top,
+				(Object *)gwin->objects[GID_HSCROLL], xs);
+		if(gwin->ui_nami)
+			*xs <<= gwin->nami_hprop_shift;
 	} else {
 		*xs = 0;
 	}
@@ -6998,7 +9152,10 @@ static void ami_get_hscroll_pos(struct gui_window_2 *gwin, ULONG *xs)
 static void ami_get_vscroll_pos(struct gui_window_2 *gwin, ULONG *ys)
 {
 	if(gwin->objects[GID_VSCROLL]) {
-		GetAttr(SCROLLER_Top, gwin->objects[GID_VSCROLL], ys);
+		GetAttr(gwin->ui_nami ? PGA_Top : SCROLLER_Top,
+				gwin->objects[GID_VSCROLL], ys);
+		if(gwin->ui_nami)
+			*ys <<= gwin->nami_vprop_shift;
 	} else {
 		*ys = 0;
 	}
@@ -7030,6 +9187,7 @@ static gui_window_set_scroll(struct gui_window *g, const struct rect *rect)
 	int width, height;
 	nserror res;
 	int sx = 0, sy = 0;
+	ULONG vis_w, vis_h;
 
 	if(!g) {
 		return NSERROR_BAD_PARAMETER;
@@ -7053,6 +9211,9 @@ static gui_window_set_scroll(struct gui_window *g, const struct rect *rect)
 
 	browser_window_get_extents(g->bw, false, &width, &height);
 
+	vis_w = (ULONG)bbox->Width;
+	vis_h = (ULONG)bbox->Height;
+
 	if(sx >= width - bbox->Width)
 		sx = width - bbox->Width;
 	if(sy >= height - bbox->Height)
@@ -7065,24 +9226,36 @@ static gui_window_set_scroll(struct gui_window *g, const struct rect *rect)
 
 	if(g == g->shared->gw) {
 		if(g->shared->objects[GID_VSCROLL]) {
-			RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_VSCROLL],
-				g->shared->win, NULL,
-				SCROLLER_Top, (ULONG)(sy),
-			TAG_DONE);
+			if(g->shared->ui_nami) {
+				ami_gui_nami_set_prop(g->shared, g->shared->objects[GID_VSCROLL],
+						&g->shared->nami_vprop_shift,
+						(ULONG)height, vis_h,
+						(ULONG)sy, TRUE);
+			} else {
+				RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_VSCROLL],
+					g->shared->win, NULL,
+					SCROLLER_Top, (ULONG)(sy),
+				TAG_DONE);
+			}
 		}
 
 		if(g->shared->objects[GID_HSCROLL])
 		{
-			RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_HSCROLL],
-				g->shared->win, NULL,
-				SCROLLER_Top, (ULONG)(sx),
-				TAG_DONE);
+			if(g->shared->ui_nami) {
+				ami_gui_nami_set_prop(g->shared, g->shared->objects[GID_HSCROLL],
+						&g->shared->nami_hprop_shift,
+						(ULONG)width, vis_w,
+						(ULONG)sx, TRUE);
+			} else {
+				RefreshSetGadgetAttrs((struct Gadget *)(APTR)g->shared->objects[GID_HSCROLL],
+					g->shared->win, NULL,
+					SCROLLER_Top, (ULONG)(sx),
+					TAG_DONE);
+			}
 		}
 
-		ami_schedule_redraw(g->shared, true);
-
-		if(nsoption_bool(faster_scroll) == true) g->shared->redraw_scroll = true;
-			else g->shared->redraw_scroll = false;
+		ami_schedule_redraw_interactive(g->shared, true);
+		g->shared->redraw_scroll = true;
 
 		g->scrollx = sx;
 		g->scrolly = sy;
@@ -7096,32 +9269,52 @@ static void gui_window_set_status(struct gui_window *g, const char *text)
 	ULONG size;
 	UWORD chars;
 	struct TextExtent textex;
+	ULONG secs;
+	ULONG micros;
 
 	if(!g) return;
 	if(!text) return;
-	if(!g->shared->objects[GID_STATUS]) return;
+	if(g != g->shared->gw) return;
 
-	if(g == g->shared->gw) {
-		utf8text = ami_utf8_easy((char *)text);
-		if(utf8text == NULL) return;
+	utf8text = ami_utf8_easy((char *)text);
+	if(utf8text == NULL) return;
 
-		GetAttr(GA_Width, g->shared->objects[GID_STATUS], (ULONG *)&size);
-		chars = TextFit(&scrn->RastPort, utf8text, (UWORD)strlen(utf8text),
-					&textex, NULL, 1, size - 4, scrn->RastPort.TxHeight);
-
-		utf8text[chars] = 0;
-
-		SetGadgetAttrs((struct Gadget *)g->shared->objects[GID_STATUS],
-			g->shared->win, NULL,
-			NSA_STATUS_TEXT, utf8text,
-			TAG_DONE);
-
-		RefreshGList((struct Gadget *)g->shared->objects[GID_STATUS],
-				g->shared->win, NULL, 1);
-
+	/* Nami: no bottom status gadget — promote useful text into the screen title.
+	 * Skip the core "Done (n.ns)" flash; telemetry stays visible instead. */
+	if(g->shared->ui_nami) {
 		if(g->shared->status) ami_utf8_free(g->shared->status);
 		g->shared->status = utf8text;
+		if(ami_gui_status_is_done(text)) {
+			g->shared->status_screentime = 0;
+		} else {
+			CurrentTime(&secs, &micros);
+			g->shared->status_screentime = secs;
+		}
+		ami_gui_update_screentitle(g->shared);
+		return;
 	}
+
+	if(!g->shared->objects[GID_STATUS]) {
+		ami_utf8_free(utf8text);
+		return;
+	}
+
+	GetAttr(GA_Width, g->shared->objects[GID_STATUS], (ULONG *)&size);
+	chars = TextFit(&scrn->RastPort, utf8text, (UWORD)strlen(utf8text),
+				&textex, NULL, 1, size - 4, scrn->RastPort.TxHeight);
+
+	utf8text[chars] = 0;
+
+	SetGadgetAttrs((struct Gadget *)g->shared->objects[GID_STATUS],
+		g->shared->win, NULL,
+		NSA_STATUS_TEXT, utf8text,
+		TAG_DONE);
+
+	RefreshGList((struct Gadget *)g->shared->objects[GID_STATUS],
+			g->shared->win, NULL, 1);
+
+	if(g->shared->status) ami_utf8_free(g->shared->status);
+	g->shared->status = utf8text;
 }
 
 static nserror gui_window_set_url(struct gui_window *g, nsurl *url)
@@ -7148,6 +9341,9 @@ static nserror gui_window_set_url(struct gui_window *g, nsurl *url)
 			ami_utf8_free(url_lc);
 			if(idn_url_s) free(idn_url_s);
 		}
+
+		if(g->shared->ui_nami)
+			ami_gui_update_screentitle(g->shared);
 	}
 
 	ami_update_buttons(g->shared);
@@ -7193,6 +9389,9 @@ static nserror gui_search_web_provider_update(const char *provider_name,
 
 		if(node->Type == AMINS_WINDOW)
 		{
+			if(gwin->objects[GID_SEARCH_ICON] == NULL)
+				continue;
+
 			if(gwin->search_bm != NULL)
 				DisposeObject(gwin->search_bm);
 
@@ -7393,6 +9592,9 @@ BOOL ami_gadget_hit(Object *obj, int x, int y)
 
 static Object *ami_gui_splash_open(void)
 {
+	/* Splash disabled for now — art/layout not ready */
+	return NULL;
+#if 0
 	Object *restrict win_obj, *restrict bm_obj;
 	struct Window *win;
 	struct Screen *wbscreen = LockPubScreen("Workbench");
@@ -7488,6 +9690,7 @@ static Object *ami_gui_splash_open(void)
 	UnlockPubScreen(NULL, wbscreen);
 
 	return win_obj;
+#endif
 }
 
 static void ami_gui_splash_close(Object *win_obj)
@@ -7723,7 +9926,7 @@ int main(int argc, char** argv)
 	BPTR lock = 0;
 	nserror ret;
 	int nargc = 0;
-	char *nargv = NULL;
+	char **nargv = NULL;
 
 	struct netsurf_table amiga_table = {
 		.misc = &amiga_misc_table,
@@ -7798,6 +10001,24 @@ int main(int argc, char** argv)
 	current_user = ami_gui_read_all_tooltypes(argc, argv);
 	char **args = ami_gui_commandline(&argc, argv, &nargc, &nargv);
 
+	if(cli_rdargs_help_done) {
+		if(args != NULL) {
+			int hi;
+			for(hi = 0; hi < nargc; hi++) {
+				if(args[hi] != NULL)
+					free(args[hi]);
+			}
+			free(args);
+		}
+		ami_gui_resources_free();
+		ami_gui_splash_close(splash_window);
+#ifndef __amigaos4__
+		ami_memory_fini(memhandler);
+#endif
+		ami_libs_close();
+		return RETURN_OK;
+	}
+
 	current_user_dir = ami_gui_get_user_dir(current_user);
 	if(current_user_dir == NULL) {
 		ami_gui_resources_free();
@@ -7855,6 +10076,13 @@ int main(int argc, char** argv)
 		}
 		NSLOG(netsurf, INFO, "Freeing fake arg array");
 		free(args);
+	}
+
+	/* NAMI/NETSURF (or tooltypes) beat Prefs and --ui_style for this run */
+	if(cli_ui_style_override == 0 || cli_ui_style_override == 1) {
+		nsoption_set_int(ui_style, cli_ui_style_override);
+		NSLOG(netsurf, INFO, "ui_style forced to %d for this launch",
+		      cli_ui_style_override);
 	}
 
 	if (ami_locate_resource(messages, "Messages") == false) {

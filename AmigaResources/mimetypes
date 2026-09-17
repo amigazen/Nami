@@ -21,6 +21,18 @@
 ; with any additions, and place it in your user data directory.
 
 ;
+; Document / text types NetSurf renders natively
+;
+
+; HTML (also forced by extension in fetch_filetype when no HTML DataType)
+text/html                  DT=HTML     TYPE=html
+text/htm                   DT=HTML     TYPE=html
+application/xhtml+xml      DT=HTML     TYPE=html
+
+; CSS
+text/css                   DT=ASCII    TYPE=css
+
+;
 ; Image types
 ;
 

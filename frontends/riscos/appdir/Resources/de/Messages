@@ -1,1 +1,635 @@
-../../../../../resources/de/Messages
+# This messages file is automatically generated from resources/FatMessages
+# at build-time.  Please go and edit that instead of this.
+
+NetSurf:Nami
+NetSurfCopyright:© 2003-2026 The NetSurf Developers (Nami is based on NetSurf)
+Yes:Ja
+No:Nein
+Replace:Überschreiben
+DontReplace:Abbrechen
+Remove:Adresse entfernen
+DontRemove:Behalten
+obj:Objekt
+objs:Objekte
+styl:Formatvorlage
+styls:Formatvorlagen
+OK:Ok
+Selecting:Auswählen
+FrameDrag:Frames ändern
+Bytes: B
+kBytes: kB
+MBytes: MB
+GBytes: GB
+KiBytes: KiB
+MiBytes: MiB
+GiBytes: GiB
+TiBytes: TiB
+PiBytes: PiB
+EiBytes: EiB
+Form_Submit:Übertragen
+Form_Reset:Zurücksetzen
+Form_None:
+Form_Many:(Viele)
+Form_Drop:Datei hier hinziehen
+FormSelect:Anklicken öffnet Auswahlmenü
+FormCheckbox:Anklicken um die Option an/abzuschalten
+FormRadio:Anklicken wählt diese Option
+FormSubmit:Daten übertragen an %s
+FormBadSubmit:Achtung: Daten können nicht gesendet werden
+FormButton:Achtung: Schaltknopf kann nicht aktiviert werden
+FormTextarea:Anklicken zum Editieren
+FormTextbox:Anklicken zum Bearbeiten des Feldes
+FormReset:Zurücksetzen (nicht implementiert)
+FormFile:Zum Upload Datei hierhin ziehen und fallenlassen
+SelectMenu:Auswahl
+BMPTitle:%s (BMP Bild %lux%lu pixels)
+GIFTitle:%s (GIF Bild %lux%lu pixels)
+ICOTitle:%s (ICO Bild %lux%lu pixels)
+JPEGTitle:%s (JPEG Bild %lux%lu pixels)
+PNGTitle:%s (PNG Bild %lux%lu pixels)
+SpriteTitle:%s (Sprite Bild %lux%lu pixels)
+WebPTitle:%s (WebP Bild %lux%lu pixels)
+DataTypesTitle:%s (%s Bild %lux%lu pixels)
+Encoding0:aus HTTP Kopfzeilen
+Encoding1:ermittelt
+Encoding2:aus <meta>
+EncodingUnk:Unbekannt
+Not2xx:Server meldet Fehler zurück
+InvalidURL:Die Adresse <em>%s</em> konnte nicht ausgewertet werden.
+ErrorPage:<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Seitenfehler</title></head><body><h1>Nami konnte diese Seite leider nicht darstellen.</h1><p><strong>%s</strong></p></body></html>
+NoMemory:Zu wenig Speicher. Bitte mehr Speicher zur Verfügung stellen und erneut versuchen.
+SaveError:Die Datei konnte wegen eines Fehlers nicht gespeichert werden:
+LoadError:Die Datei konnte wegen eines Fehlers nicht geladen werden:
+MiscError:Unerwarteter Fehler:
+FileError:Datei existiert nicht:
+PrintError:Ein Fehler trat während des Druckens auf:
+NoDiscSpace:Nicht genug Speicherplatz auf dem Medium vorhanden.
+HotlistSaveError:Hotlist konnte nicht korrekt gespeichert werden.
+TreeLoadError:The tree was unable to be correctly loaded.
+NoDirError:%s ist kein Verzeichnis.
+NoNameError:Bitte einen Namen eingeben.
+NoURLError:Bitte eine URL Adresse eingeben.
+URIError:Nami konnte die URI Datei nicht lesen. Syntax Fehler.
+EmptyError:Die Datei ist leer.
+SearchError:Suche fehlerhaft.
+EncNotRec:Encodierung nicht erkannt.
+FileOpenError:Datei ist nicht zu öffnen: '%s'
+DirectoryError:Verzeichnis '%s' existiert bereits.
+Timeout:This site took too long to respond
+BadURL:The given URL was not able to be parsed
+CompError:Nicht zu öffnen
+BMConvErr:Nami benötigt die guigfx.library für Bilder in diesem Mode
+MultiTabClose:Wirklich mehrere Tabs schließen?
+TCPIPShutdown:Der TCP/IP Stack geht grad' zur Hölle und reißt Netsurf mit sich. In genau 5 Sekunden - es sei denn, der Shutdown wird abgebrochen.
+AbortShutdown:Shutdown abbrechen
+AbortDownload:Soll das Herunterladen der Datei wirklich abgebrochen werden ?
+QuitDownload:Das Herunterladen ein oder mehrerer Dateien wurde noch nicht abgeschlossen. Soll Nami trotzdem beendet werden ?
+OverwriteFile:Eine Datei mit diesem Namen existiert bereits und würde überschrieben werden.
+RemoveHotlist:Adresse wirklich aus der Hotlist entfernen?
+Progress:%s von %s
+ProgressU:%s
+RecPercent:Empfangen %s (%u%%)
+Received:Empfangen %s
+Redirecting:Umleiten...
+Loading:Laden
+Fetching:Daten holen
+Processing:Auswerten
+Formatting:Formatieren
+Done:Fertiggestellt
+Stopped:Angehalten
+UnsupportedRedirect:Falsche URL für Redirect
+CyclicRedirect:Redirected too many times. Try deleting your cookies
+UnsafeRedirect:Redirected to an unsafe URL
+FetchFailed:Kann Dokument nicht fetchen
+NotCSS:Warnung:Stylesheet ist kein CSS
+NotFavIco:Favicon wird nicht unterstützt
+BadObject:Warnung: falscher Objekttyp
+ObjError:Fehler beim Laden des Objektes: %s
+ParsingFail:Dokumentparsing ist fehlgeschlagen.
+CSSGeneric:CSS Auswertung klappt nicht
+CSSBase:Base stylesheet failed to load
+BadGIF:Lesen einer GIF Datei fehlgeschlagen.
+BadBMP:Lesen einer BMP Datei fehlgeschlagen.
+BadICO:Lesen einer ICO Datei fehlgeschlagen.
+PNGError:Fehler beim PNG konvertieren.
+MNGError:MNG Library Fehler: %i
+BadSprite:Ungültiges oder beschädigtes Sprite.
+HTTP0:OK
+HTTP200:OK
+HTTP201:Created
+HTTP202:Accepted
+HTTP203:Non-authoritative information
+HTTP204:No content
+HTTP205:Reset content
+HTTP206:Partial content
+HTTP300:Multiple choices
+HTTP301:Moved permanently
+HTTP302:Found
+HTTP303:See other
+HTTP304:Not modified
+HTTP305:Use proxy
+HTTP307:Temporary redirect
+HTTP400:Bad request
+HTTP401:Unauthorized
+HTTP402:Payment required
+HTTP403:Forbidden
+HTTP404:Not found
+HTTP405:Method not allowed
+HTTP406:Not acceptable
+HTTP407:Proxy authentication required
+HTTP408:Request timeout
+HTTP409:Conflict
+HTTP410:Gone
+HTTP411:Length required
+HTTP412:Precondition failed
+HTTP413:Request entity too large
+HTTP414:Request-URI too long
+HTTP415:Unsupported media type
+HTTP416:Requested range not satisfiable
+HTTP417:Expectation failed
+HTTP500:Internal server error
+HTTP501:Not implemented
+HTTP502:Bad gateway
+HTTP503:Service unavailable
+HTTP504:Gateway timeout
+HTTP505:HTTP version not supported
+FileIndex:Inhalt von %s
+FileParent:^ Eine Ebene höher
+FileDirectory:Verzeichnis
+FileName:Name
+FileSize:Größe
+FileDate:Datum
+FileTime:Zeit
+FileType:Typ
+NotFound:nichts
+Next:Nächster
+Prev:Vorheriger
+ShowAll:Alle zeigen
+CaseSens:Groß-/Kleinschreibung
+LoginTitle:Authentication Requested
+LoginDescription:The site %s with realm "%s" is requesting credentials for access.
+LoginAgain:The credentials for the site %s and realm "%s" were rejected.
+Host:Host
+Realm:Realm
+Username:Benutzername
+Password:Passwort
+Login:Login
+Cancel:Abbruch
+PrivacyTitle:Datenschutzfehler
+PrivacyDescription:A privacy error occurred while communicating with %s this may be a site configuration error or an attempt to steal private information (passwords, messages or credit cards)
+ViewCertificates:Zertifikatdetails anzeigen
+ViewCertificatesNotPossible:Zertifikatinformationen können nicht angezeigt werden
+Proceed:Vorgehen
+Backtosafety:Zurück zur Sicherheit
+SSLCertErrOk:The certificate has no errors.
+SSLCertErrUnknown:An unknown error occurred while processing the certificate.
+SSLCertErrBadIssuer:The issuer of this certificate is not known. This may occur if the browser cannot access the certificate authority (CA) bundle.
+SSLCertErrBadSig:The certificate is improperly signed.
+SSLCertErrTooYoung:The certificate is not yet valid.
+SSLCertErrTooOld:The certificate has expired.
+SSLCertErrSelfSigned:The certificate is self signed.
+SSLCertErrChainSelfSigned:The certificate chain is self signed.
+SSLCertErrRevoked:The certificate has been revoked by the issuer.
+SSLCertErrHostnameMismatch:The certificate is for a different host than the server.
+SSLCertErrCertMissing:The certificate was missing from the chain.
+TimeoutTitle:Connection timed out
+TimeoutDescription: A connection to %s could not be established. The site may be temporarily unavailable or too busy to respond.
+Backtoprevious:Back
+TryAgain:Try Again
+FetchErrorTitle:Error occurred fetching page
+FetchErrorDescription:An error occurred when connecting to %s
+FetchFailedToFinish:The fetch for this request failed to complete
+FetchErrorCode:Error code
+FetchFile:fetching file
+SSLCerts:SSL Zertifikat
+SSLError:Nami konnte ein SSL Zertifikat nicht prüfen. Bitte die Details unten beachten.
+SSL_Certificate_Subject:Subject: %s
+SSL_Certificate_Issuer:Issuer: %s
+SSL_Certificate_Version:Version: %ld
+SSL_Certificate_ValidFrom:Valid from: %s
+SSL_Certificate_ValidTo:Valid until: %s
+SSL_Certificate_Type:Type: %i
+SSL_Certificate_Serial:Serial: %ld
+SSL_Certificate_Accept:Accept
+SSL_Certificate_Reject:Reject
+PrintSheetFilled:Druckseite
+PrintSheetsFilled:Druckseiten
+Printer:Drucker
+Copies:Kopien
+Printing:Drucke Seite
+TreeAdded:eingetragen am: %s
+TreeLast:letzter Besuch: %s
+TreeVisited:gesehen am: %s
+TreeVisits:Besuche gesamt: %i
+TreeUnknown:Unbekannt
+TreeValue:Eintrag: %s
+TreeComment:Kommentar: %s
+TreeDomain:Domain: %s%s
+TreePath:Pfad: %s%s
+TreeExpires:Verfällt: %s
+TreeLastUsed:Zuletzt genutzt: %s
+TreeSecure:Nur sichere Hosts: %s
+TreeVersion:Version: %s
+TreePersistent:Persistent: %s
+TreeHeaders: (aus Header)
+TreeVersion0:Netscape
+TreeVersion1:RFC 2109
+TreeVersion2:RFC 2965
+TreeSession:Sitzungsende
+TreeUnused:Nicht benutzt
+TreeImport:Importierte URL
+TreeNewLink:New address
+TreeNewFolder:Neues Verzeichnis
+TreeLaunch:URL ansehen
+TreeDelete:Löschen
+TreeDefault:Set as default
+TreeClear:Clear default
+TreeEdit:Edit title
+TreeviewLabelTitle:Title
+TreeviewLabelURL:URL
+TreeviewLabelLastVisit:Last visit
+TreeviewLabelVisits:Visits
+TreeviewLabelPeriod:Period
+TreeviewLabelName:Name
+TreeviewLabelContent:Content
+TreeviewLabelDomain:Domain
+TreeviewLabelPath:Path
+TreeviewLabelExpires:Expires
+TreeviewLabelLastUsed:Last used
+TreeviewLabelRestrictions:Restrictions
+TreeviewLabelVersion:Version
+TreeviewLabelPersistent:Persistent
+TreeviewLabelDomainFolder:Domain folder
+TreeviewLabelSerial:Serial
+TreeviewLabelType:Type
+TreeviewLabelValidUntil:Valid until
+TreeviewLabelValidFrom:Valid from
+TreeviewLabelIssuer:Issuer
+TreeviewLabelFolder:Folder
+CookieManagerSession:Session
+CookieManagerHTTPS:Secure hosts via https only
+CookieManagerSecure:Secure hosts only
+CookieManagerHTTP:HTTP connections only
+HotlistDefaultFolderName:Unsorted entries
+NewFolderName:New folder
+NoTitle:<No title>
+TreeHotlist:Nami Hotlist
+NetSurfDesc:Nami is a small, fast web browser for AmigaOS, based on NetSurf.
+NewLink:Neuen Eintrag erstellen
+NewFolder:Verzeichnis anlegen
+EditTitle:Edit title
+EditLink:Eintrag bearbeiten
+EditFolder:Verzeichnis umbenennen
+HotlistHomepage:Nami Homepage
+HotlistDocumentation:Dokumentation
+HotlistContact:Contact the NetSurf developers
+HotlistDownloads:Download the latest version
+HotlistMenu:Hotlist menu
+HotlistToolbar:Hotlist toolbar
+GlobalHistory:History (global)
+DomainAll:(All domains)
+DateToday:Heute
+DateYesterday:Gestern
+Date2Days:vor 2 Tagen
+Date3Days:vor 3 Tagen
+Date4Days:vor 4 Tagen
+Date5Days:vor 5 Tagen
+Date6Days:vor 6 Tagen
+Date1Week:vor einer Woche
+Date2Week:vor 2 Wochen
+Date3Week:vor 3 Wochen
+Sunday:Sonntag
+Monday:Montag
+Tuesday:Dienstag
+Wednesday:Mittwoch
+Thursday:Donnerstag
+Friday:Freitag
+Saturday:Samstag
+Info:Information
+Open:Öffnen
+Choices:Einstellungen...
+Quit:Beenden
+OpenURL:Öffne URL
+Page:Seite
+Object:Objekt
+Navigate:Navigieren
+View:Anzeige
+Utilities:Werkzeuge
+Help:Hilfe
+Export:Exportieren
+SaveURL:URL speichern
+PDF:PDF
+LinkText:Text
+ObjInfo:Info
+ObjSave:Speichern
+ObjPrint:Drucken
+ObjReload:erneut laden
+Sprite:Sprite
+ObjDraw:Draw
+LinkSave:Speichern
+LinkDload:Ziel speichern
+LinkNew:Neues Fenster
+SelSave:Speichern
+Home:Homepage
+Back:Eine Seite zurück
+Forward:Eine Seite vor
+UpLevel:Eine Ebene hoch
+Stop:Ladevorgang abbrechen
+Images:Bilder
+Toolbars:Anzeigen und Leisten
+Render:Rendern
+OptDefault:als Standard speichern
+ForeImg:Vordergrundbilder
+BackImg:Hintergrundbilder
+ToolButtons:Knopfgrafiken
+ToolAddress:Adressleiste
+ToolThrob:Ladeaktivität
+ToolStatus:Statusanzeige
+RenderAnims:Animationen zwischenspeichern
+RenderAll:Alles zwischenspeichern
+Hotlist:Hotlist
+History:History
+Cookies:Cookies
+Window:Fenster
+HotlistAdd:Eintrag hinzufügen
+ShowCookies:Cookies verwalten...
+DeleteCookies:Alle Cookies löschen
+WindowSave:aktuelle Fensterposition speichern
+WindowStagr:neue Fenster versetzen
+WindowSize:Fenstergröße beibehalten
+WindowReset:Fensterposition zurücksetzen
+HelpCredits:Credits
+HelpLicence:Lizenz
+Toolbar:Symbolleiste
+EditToolbar:Symbolleiste bearbeiten
+Selection:Auswahl
+Edit:Bearbeiten
+ResetUsage:Statistik zurücksetzen
+New:Neu
+Expand:Expandieren
+Collapse:Zusammenfalten
+Tree:Tree
+TreeExport:Export...
+Folder:Verzeichnis
+Link:Verweis
+All:Alles
+Folders:Verzeichnisse
+Links:Einträge
+Domains:Domains
+URLSuggest:Aktuelle URLs
+Languages:Sprachen
+ProxyType:Proxytyp
+ProxyNone:kein Proxy
+ProxyNoAuth:normaler Proxy
+ProxyBasic:mit Authentifizierung
+ProxyNTLM:NTLM Authentifizierung
+Fonts:Schriften
+DefaultFonts:Schriftfamilien
+Display:Ausgabe
+ImgStyle0:RISC OS nutzen
+ImgStyle1:Direktausgabe
+ImgStyle2:Dithern
+ImgStyle3:Error-Diffusion
+Project:Projekt
+NewWindowNS:Neues Fenster
+NewTab:Neuer Tab
+CloseTab:Schließe Tab
+CloseWindow:Schließe Fenster
+SaveAsNS:Speichern als
+Source:Quelle...
+TextNS:Text...
+SaveCompNS:Komplett...
+PDFNS:PDF...
+IFF:IFF...
+OpenFile:Öffne lokale Datei...
+About:Über
+PrintNS:Drucken...
+CutNS:Ausschneiden
+CopyNS:Kopieren
+PasteNS:Einfügen
+SelectAllNS:Alles auswählen
+ClearNS:Auswahl rückgängig
+Undo:Undo
+Redo:Redo
+Browser:Browser
+HistGlobalNS:Zeige globale History
+HistLocalNS:Zeige lokale History
+ShowCookiesNS:Cookies verwalten
+FindTextNS:Suchen...
+Redraw:Seite neu aufbauen
+ScaleNS:Skalieren
+ScaleInc:Vergrößern
+ScaleDec:Verkleinern
+ScaleNorm:Normal
+HotlistShowNS:Zeige Hotlist
+SettingsEdit:Voreinstellungen
+Settings:Einstellungen
+SnapshotWindow:Schnappschuß
+SettingsSave:Einstellungen speichern
+ARexx:ARexx
+ARexxExecute:Script ausführen...
+Link:Link
+LinkNewTab:Öffnen in Tab
+LinkNewWin:Öffnen in Fenster
+CopyURL:URL ins Clipboard
+CopyClip:Inhalt ins Clipboard
+SaveAs:Speichern als...
+SaveIFF:Speichern als IFF...
+SaveComplete:Speichern abgeschlossen...
+Close:Schließen
+CloseInactive:Close inactive tabs
+ObjShow:Zeige Objekt
+Frame:Frame
+FrameNewWin:In neuem Fenster anzeigen
+FrameNewTab:In neuem Tab anzeigen
+FrameOnly:Nur diesen Frame anzeigen
+SelectFile:Datei auswählen...
+ExternalApp:In externer Anwendung öffnen
+Download:%s von %s • %s/s • noch %s
+DownloadU:%s von unbekannt • %s/s • bisher %s
+Downloaded:%s komplett • etwa %s/s • gesamt %s
+Unwritten:Schreiben der Datei ist fehlgeschlagen.
+Abort:Abgebrochen
+amiDownloading:Nami: Downloading...
+amiDownload:%ld von %ld Bytes heruntergeladen
+amiDownloadU:%ld Bytes heruntergeladen
+amiDownloadComplete:Nami: Download vollständig
+amiSizeExisting:Größe der vorhandenen Datei:
+amiSizeNew:Größe der neuen Datei:
+ScrollUp:Pfeil anklicken zum Hochscrollen
+ScrollPUp:Anklicken scrollt eine Seite hoch
+ScrollV:Ziehen der Leiste scrollt vertikal
+ScrollPDown:Anklicken scrollt eine Seite nach unten
+ScrollDown:Pfeil anklicken zum Herunterscrollen
+ScrollLeft:Pfeil anklicken scrollt links
+ScrollPLeft:Anklicken scrollt eine Seite nach links
+ScrollH:Ziehen der Leiste scrollt horizontal
+ScrollPRight:Anklicken scrollt eine Seite nach rechts
+ScrollRight:Pfeil anklicken scrollt rechts
+ScrollBoth:Bewege die Maus bei gedrückten Mausknopf zum Scrollen des Inhalts
+SelectClick:Anklicken um auszuwählen
+SelectMClick:Anklicken um auszuwählen, auch mehrere Optionen sind auswählbar
+SelectClose:Anklicken zum Schließen des Menus
+SaveSource:Quellcode
+SaveDraw:Webseite
+SaveText:Webseite
+SaveObject:Objekt
+SaveLink:Link
+SaveSelection:Auswahl
+ThemeInstActive:Ein Thema wird gerade geladen oder installiert. Bitte vor Installation weiterer Themen diesen Vorgang abwarten oder beenden.
+ThemeInstDown:Bitte warten bis das Thema vollständig heruntergeladen wurde.
+ThemeInvalid:Das geladene Thema ist fehlerhaft oder benötigt eine neuere Version von Nami.
+ThemeInstall:Soll das Thema '%s' von %s installiert werden ?
+ThemeInstallErr:Beim Installieren des geladenen Themas trat ein Fehler auf.
+ThemeApplyErr:Beim Versuch der Anwendung eines geladenen Themas trat ein Fehler auf.
+More:Mehr
+HelpToolbarBack:Back\nLMB: Steps back one page\nRMB: Display a menu of recent pages
+HelpToolbarForward:Forward\nLMB: Steps forward one page
+HelpToolbarStop:Stop\nLMB: Stops loading the page
+HelpToolbarReload:Reload\nLMB: Reloads the page\nShift+LMB: Reloads the page and all objects
+HelpToolbarHome:Home\nLMB: Homepage ansteuern
+HelpToolbarURL:URL bar\nType a URL and press Return\nSuggestions can be selected with up/down
+HelpToolbarWebSearch:Websuchleiste\nText eingeben und Enter drücken um mit der Standardsuchmaschine zu suchen
+HelpToolbarAddTab:Tab hinzufügen.
+HelpToolbarHotlistStar:Add the current page to the hotlist
+HelpToolbarHotlistStarLit:Remove the current page from the hotlist
+HelpPrefsFontBitmap:Use bitmap fonts engine.\nWhen deselected, the outline font engine will be used (recommended on fast machines).\nToggling this will reset the fonts to defaults.
+PageInfo:Page info
+PageInfoInsecure:Insecure
+PageInfoLocal:Local
+PageInfoSecure:Secure
+PageInfoWarning:Warning
+PageInfoInternal:Internal
+con_cache:Cache
+con_connect:Verbindung
+con_content:Inhalte
+con_fonts:Schriftarten
+con_home:Homepage
+con_image:Bilder
+con_inter:Nützliches
+con_lang:Sprachen
+con_memory:Speicher
+con_search:Suchen
+con_secure:Sicherheit
+con_theme:Themen
+con_general:Allgemeines
+con_rendering:Rendern
+con_advanced:Erweitertes
+Preferences:Einstellungen
+Use:Benutzen
+HomePageURL:URL
+HomePageDefault:Standardseite
+HomePageCurrent:Aktuelle Seite
+HomePageBlank:Use blank page
+ContentBlocking:Inhalte blockieren
+BlockAds:Werbung unterdrücken
+ContentLanguage:Sprache
+LocaleLang:Rechnervorgabe nutzen
+HistoryAge:History behalten für
+Days:Tage
+Scripting:Scripting
+EnableJS:JavaScript benutzen
+Miscellaneous:Verschiedenes
+Privacy:Privacy
+SendReferer:Seitenreferenzen senden
+DoNotTrack:Webseiten das Tracking verbieten - Wunsch
+FastScrolling:Schnelles Scrollen
+Screen:Ausgabe
+ScreenOwn:Eigener Screen
+ScreenWB:Workbench
+ScreenPublic:Public Screen
+SimpleRefresh:Simple refresh
+Theme:Thema
+ThemeGUI:GUI theme
+ThemePage:Preferred page theme
+Light:Light
+Dark:Dark
+MousePointers:Mauszeiger
+TrueColour:TrueColour
+OSPointers:Mauszeiger vom OS nutzen, wenn möglich
+NeedRestart:Diese Optionen werden erst nach einem Neustart von Nami aktiviert.
+Proxy:HTTP Proxy
+ProxyBypass:Bypass proxy for
+Fetching:Fetching
+FetchesMax:Maximale Anzahl an Ladevorgängen
+FetchesHost:Ladevorgänge pro Host
+FetchesCached:Gehaltene Verbindungen
+CacheNative:Originale zwischenspeichern
+ScaleQuality:Skalieren hoher Qualität
+DitherQuality:Dithern
+Low:Low
+Medium:Medium
+High:High
+Animations:Animationen
+AnimSpeedLimit:Geschwindigkeit begrenzen
+AnimSpeedFrames:Bildintervall (Sekunden)
+AnimDisable:Animationen abschalten
+None:Keine
+Scaled:Skaliert
+Resolution:Auflösung
+ResolutionY:Vertikale Auflösung
+ResolutionX:Horizontale Auflösung
+DPI:DPI
+EnableCSS:CSS benutzen
+DefaultScale:Standardmäßige Seitenskalierung
+FontFamilies:Schriftfamilien
+FontSans:Sans-serif
+FontSerif:Serif
+FontMono:Monospace
+FontCursive:Kursiv
+FontFantasy:Fantasy
+FontFallback:wenns nicht klappt
+Default:Standard
+FontSize:Schriftgröße
+Minimum:Minimum
+Pt:pt
+FontAntialiasing:Anti-aliasing nutzen (wenn möglich)
+FontEngine:Font engine
+FontEngineDiskfont:Bitmap (Diskfont)
+FontEngineBullet:Outline (BulletAPI) [Recommended]
+FontScanning:Lese Fonts ein...
+FontGlyphs:%ld eigenständige Glyphen gefunden
+CacheMemory:Arbeitsspeicher Cache
+CacheDisc:Festplatten Cache
+Size:Größe
+Duration:Dauer
+Tabs:Tabs
+TabLinkOpen:Open links in tabs instead of new windows
+TabSwitchNew:When a new tab is opened immediately switch to it
+TabbedBrowsing:Registernavigation (Tabs)
+TabActive:Neuen Tab im Hintergrund öffnen
+TabMiddle:Mittlere Maustaste öffnet Tab
+TabLast:Neue Tabs hinter letztem öffnen
+TabClose:Warnen beim Schließen vieler Tabs
+TabAlways:Tabs immer zeigen
+Downloads:Downloads
+ConfirmOverwrite:vor Überschreiben nachfragen
+DownloadDir:Downloadverzeichnis
+DownloadNotify:Downloadende melden
+SearchWeb:Websuche
+SearchURL:Suche über URL Leiste
+SearchProvider:Suchmaschine
+OptionDocky:In AmiDock zeigen
+PopupMenu:Use popupmenu for forms
+Clipboard:Clipboard
+ClipboardUTF8:Text als UTF-8
+ContextMenu:Kontextmenu
+Enable:Erlauben
+Sticky:Klebrig
+Behaviour:Verhalten
+OptionNoWindow:Kein Fenster beim Start öffnen
+OptionNoQuit:Nicht Beenden beim Schließen des letzten Fensters
+Margins:Ränder
+Top:Oben
+Left:Links
+Right:Rechts
+Bottom:Unten
+MM:mm
+Scaling:Skalierung
+Scale:Skalieren
+Appearance:Aussehen
+SuppressImages:Bilder unterbinden
+RemoveBackground:Hintergrund entfernen
+FitPage:Seite einpassen
+CompressPDF:PDF komprimieren
+SetPassword:Passwort festlegen

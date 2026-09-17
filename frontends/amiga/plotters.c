@@ -590,7 +590,6 @@ static void ami_bitmap_blit_os3(struct BitMap *tbm, struct RastPort *rp,
 	int bh;
 	int clip_x1;
 	int clip_y1;
-	LONG sample;
 
 	sx = 0;
 	sy = 0;
@@ -600,7 +599,6 @@ static void ami_bitmap_blit_os3(struct BitMap *tbm, struct RastPort *rp,
 	bh = height;
 	clip_x1 = clip->MaxX + 1;
 	clip_y1 = clip->MaxY + 1;
-	sample = -1;
 
 	if (tbm == NULL || rp == NULL) {
 		return;
@@ -636,13 +634,6 @@ static void ami_bitmap_blit_os3(struct BitMap *tbm, struct RastPort *rp,
 		BltBitMapRastPort(tbm, sx, sy, rp, dx, dy, bw, bh, 0xC0);
 	}
 	WaitBlit();
-
-	if (bw >= 16 && bh >= 16) {
-		sample = ReadPixel(rp, dx + (bw / 2), dy + (bh / 2));
-		NSLOG(netsurf, INFO,
-		      "ami_bitmap_blit_os3: %dx%d at (%d,%d) mask=%d sample=%ld",
-		      bw, bh, dx, dy, mask != NULL ? 1 : 0, (long)sample);
-	}
 }
 #endif
 

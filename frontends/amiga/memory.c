@@ -37,24 +37,10 @@ enum {
 };
 static int low_mem_status = PURGE_NONE;
 
-/* Tracked allocations — catch bad/double frees before they trash MemList */
-#define AMI_MEM_MAGIC		0x4E534D45UL /* 'NSME' */
-#define AMI_MEM_MAGIC_DEAD	0xDEADF00DUL
-
 /* When largest Public block drops below this, purge caches proactively. */
 #define AMI_MEM_PUBLIC_FLOOR	(384UL * 1024UL)
 /* Chip floor — leave room for TmpRas / layers on AGA. */
 #define AMI_MEM_CHIP_FLOOR	(96UL * 1024UL)
-
-struct ami_mem_hdr {
-	ULONG magic;
-	ULONG size; /* user payload size */
-	struct ami_mem_hdr *next;
-	struct ami_mem_hdr *prev;
-};
-
-static struct ami_mem_hdr *ami_mem_live = NULL;
-static ULONG ami_mem_live_count = 0;
 
 /**
  * Normal AllocVec: prefer Fast so Chip stays for graphics/blitter buffers.
@@ -71,102 +57,37 @@ APTR ami_memory_allocvec(ULONG size, ULONG extra_flags)
 	return p;
 }
 
-static void ami_mem_link(struct ami_mem_hdr *h)
-{
-	h->prev = NULL;
-	h->next = ami_mem_live;
-	if (ami_mem_live != NULL) {
-		ami_mem_live->prev = h;
-	}
-	ami_mem_live = h;
-	ami_mem_live_count++;
-}
-
-static void ami_mem_unlink(struct ami_mem_hdr *h)
-{
-	if (h->prev != NULL) {
-		h->prev->next = h->next;
-	} else {
-		ami_mem_live = h->next;
-	}
-	if (h->next != NULL) {
-		h->next->prev = h->prev;
-	}
-	if (ami_mem_live_count > 0) {
-		ami_mem_live_count--;
-	}
-}
-
-static struct ami_mem_hdr *ami_mem_hdr_from_user(void *p)
-{
-	return ((struct ami_mem_hdr *)p) - 1;
-}
-
-static BOOL ami_mem_validate(struct ami_mem_hdr *h, ULONG expect_size, const char *op)
-{
-	if (h == NULL) {
-		NSLOG(netsurf, ERROR, "mem %s: NULL header", op);
-		return FALSE;
-	}
-	if (h->magic == AMI_MEM_MAGIC_DEAD) {
-		NSLOG(netsurf, ERROR, "mem %s: double-free at %p", op, (void *)(h + 1));
-		return FALSE;
-	}
-	if (h->magic != AMI_MEM_MAGIC) {
-		NSLOG(netsurf, ERROR, "mem %s: bad magic 0x%lx at %p (not our block)",
-		      op, (unsigned long)h->magic, (void *)(h + 1));
-		return FALSE;
-	}
-	if (expect_size != 0 && h->size != expect_size) {
-		NSLOG(netsurf, ERROR, "mem %s: size mismatch have=%lu expect=%lu at %p",
-		      op, (unsigned long)h->size, (unsigned long)expect_size,
-		      (void *)(h + 1));
-		return FALSE;
-	}
-	return TRUE;
-}
-
-/* Special clear (ie. non-zero) — Fast-preferring, never requests Chip */
+/*
+ * Plain AllocVec + memset — no tracking header.
+ * Prepended magic headers + FreeVec(h) / FreePooled(h) were a MemList
+ * hazard whenever any caller passed a non-wrapped pointer.
+ */
 void *ami_memory_clear_alloc(size_t size, UBYTE value)
 {
-	struct ami_mem_hdr *h;
+	void *p;
 
-	h = ami_memory_allocvec(sizeof(*h) + size, 0);
-	if (h == NULL) {
+	p = ami_memory_allocvec((ULONG)size, 0);
+	if (p == NULL) {
 		return NULL;
 	}
-	h->magic = AMI_MEM_MAGIC;
-	h->size = (ULONG)size;
-	ami_mem_link(h);
-	memset(h + 1, value, size);
-	return (void *)(h + 1);
+	memset(p, value, size);
+	return p;
 }
 
 void ami_memory_clear_free(void *p)
 {
-	struct ami_mem_hdr *h;
-
-	if (p == NULL) {
-		return;
+	if (p != NULL) {
+		FreeVec(p);
 	}
-	h = ami_mem_hdr_from_user(p);
-	if (ami_mem_validate(h, 0, "clear_free") == FALSE) {
-		return;
-	}
-	ami_mem_unlink(h);
-	h->magic = AMI_MEM_MAGIC_DEAD;
-	FreeVec(h);
 }
 
 /* Exec memory pools for fixed-size item allocations (bitmap structs, pens, etc.) */
 APTR ami_memory_itempool_create(ULONG item_size)
 {
 	ULONG puddle;
-	ULONG total;
 	APTR pool;
 
-	total = item_size + (ULONG)sizeof(struct ami_mem_hdr);
-	puddle = total * 32UL;
+	puddle = item_size * 32UL;
 	if (puddle < 4096UL) {
 		puddle = 4096UL;
 	}
@@ -189,48 +110,23 @@ void ami_memory_itempool_delete(APTR pool)
 
 APTR ami_memory_itempool_alloc(APTR pool, ULONG size)
 {
-	struct ami_mem_hdr *h;
-	ULONG total;
-
-	total = size + (ULONG)sizeof(struct ami_mem_hdr);
-
 	if (pool == NULL) {
 		return ami_memory_clear_alloc(size, 0);
 	}
-
-	h = AllocPooled(pool, total);
-	if (h == NULL) {
-		return NULL;
-	}
-	h->magic = AMI_MEM_MAGIC;
-	h->size = size;
-	ami_mem_link(h);
-	return (void *)(h + 1);
+	/* Direct AllocPooled — size passed to FreePooled must match exactly. */
+	return AllocPooled(pool, size);
 }
 
 void ami_memory_itempool_free(APTR pool, APTR item, ULONG size)
 {
-	struct ami_mem_hdr *h;
-	ULONG total;
-
 	if (item == NULL) {
 		return;
 	}
-
-	h = ami_mem_hdr_from_user(item);
-	if (ami_mem_validate(h, size, "itempool_free") == FALSE) {
-		return;
-	}
-
-	ami_mem_unlink(h);
-	h->magic = AMI_MEM_MAGIC_DEAD;
-	total = h->size + (ULONG)sizeof(struct ami_mem_hdr);
-
 	if (pool == NULL) {
-		FreeVec(h);
+		FreeVec(item);
 		return;
 	}
-	FreePooled(pool, h, total);
+	FreePooled(pool, item, size);
 }
 
 void ami_memory_slab_dump(BPTR fh)
@@ -238,12 +134,11 @@ void ami_memory_slab_dump(BPTR fh)
 	char line[160];
 
 	sprintf(line,
-		"Exec memory: largest=%lu avail=%lu chip largest=%lu avail=%lu tracked=%lu\n",
+		"Exec memory: largest=%lu avail=%lu chip largest=%lu avail=%lu\n",
 		(unsigned long)AvailMem(MEMF_ANY | MEMF_LARGEST),
 		(unsigned long)AvailMem(MEMF_ANY),
 		(unsigned long)AvailMem(MEMF_CHIP | MEMF_LARGEST),
-		(unsigned long)AvailMem(MEMF_CHIP),
-		(unsigned long)ami_mem_live_count);
+		(unsigned long)AvailMem(MEMF_CHIP));
 
 	if (fh != 0) {
 		FPuts(fh, line);
@@ -302,9 +197,8 @@ static void ami_memory_low_mem_handler(void *p)
 		llcache_clean(true);
 		after = AvailMem(MEMF_ANY | MEMF_LARGEST);
 		NSLOG(netsurf, INFO,
-		      "llcache force purge done largest_public %lu -> %lu tracked=%lu",
-		      (unsigned long)before, (unsigned long)after,
-		      (unsigned long)ami_mem_live_count);
+		      "llcache force purge done largest_public %lu -> %lu",
+		      (unsigned long)before, (unsigned long)after);
 		low_mem_status = PURGE_DONE;
 	}
 }
@@ -490,17 +384,6 @@ struct Interrupt *ami_memory_init(void)
 
 void ami_memory_fini(struct Interrupt *memhandler)
 {
-	struct ami_mem_hdr *h;
-
-	if (ami_mem_live_count != 0) {
-		NSLOG(netsurf, WARNING, "mem fini: %lu tracked blocks still live",
-		      (unsigned long)ami_mem_live_count);
-		for (h = ami_mem_live; h != NULL; h = h->next) {
-			NSLOG(netsurf, WARNING, "mem leak: %lu bytes at %p",
-			      (unsigned long)h->size, (void *)(h + 1));
-		}
-	}
-
 	if (memhandler != NULL) {
 		RemMemHandler(memhandler);
 		free(memhandler);

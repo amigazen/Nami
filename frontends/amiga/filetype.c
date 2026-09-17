@@ -18,6 +18,7 @@
 
 #include "amiga/os3support.h"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <proto/icon.h>
@@ -55,6 +56,45 @@ enum
 	AMI_MIME_PLUGINCMD
 };
 
+/**
+ * Case-insensitive suffix match (Amiga paths may use .HTML / .HTM).
+ */
+static BOOL ami_path_has_ext(const char *path, const char *ext)
+{
+	size_t plen;
+	size_t elen;
+	size_t i;
+
+	if(path == NULL || ext == NULL)
+		return FALSE;
+	plen = strlen(path);
+	elen = strlen(ext);
+	if(plen < elen)
+		return FALSE;
+	for(i = 0; i < elen; i++) {
+		if(tolower((unsigned char)path[plen - elen + i]) !=
+		   tolower((unsigned char)ext[i]))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/**
+ * MIME for common web extensions NetSurf renders itself.
+ * Returns NULL if the path is not a known web document extension.
+ */
+static const char *ami_mime_from_web_extension(const char *path)
+{
+	if(ami_path_has_ext(path, ".html") || ami_path_has_ext(path, ".htm") ||
+	   ami_path_has_ext(path, ",faf"))
+		return "text/html";
+	if(ami_path_has_ext(path, ".css") || ami_path_has_ext(path, ",f79"))
+		return "text/css";
+	if(ami_path_has_ext(path, ".js"))
+		return "application/javascript";
+	return NULL;
+}
+
 const char *fetch_filetype(const char *unix_path)
 {
 	static char mimetype[50];
@@ -62,6 +102,18 @@ const char *fetch_filetype(const char *unix_path)
 	struct DataType *dtn;
 	BOOL found = FALSE;
 	lwc_string *lwc_mimetype;
+	const char *web_mime;
+
+	/*
+	 * Prefer well-known web extensions first.  Without an HTML DataType,
+	 * ObtainDataType often returns Binary → application/octet-stream and
+	 * the browser offers a download instead of rendering.
+	 */
+	web_mime = ami_mime_from_web_extension(unix_path);
+	if(web_mime != NULL) {
+		strcpy(mimetype, web_mime);
+		return mimetype;
+	}
 
 	/* First, check if we appear to have an icon.
 	   We'll just do a filename check here for quickness, although the
@@ -102,34 +154,6 @@ const char *fetch_filetype(const char *unix_path)
 				}
 			}
 			UnLock(lock);
-		}
-	}
-
-	/* Have a quick check for file extensions (inc RISC OS filetype).
-	 * Makes detection a little more robust, and some of the redirects
-	 * caused by links in the SVN tree prevent NetSurf from reading the
-	 * MIME type from the icon (step two, above).
-	 */
-
-	if((!found) || (strcmp("text/plain", mimetype) == 0))
-	{
-		if((strncmp(unix_path + strlen(unix_path) - 4, ".css", 4) == 0) ||
-			(strncmp(unix_path + strlen(unix_path) - 4, ",f79", 4) == 0))
-		{
-			strcpy(mimetype,"text/css");
-			found = TRUE;
-		}
-
-		if((strncmp(unix_path + strlen(unix_path) - 4, ".htm", 4) == 0) ||
-			(strncmp(unix_path + strlen(unix_path) - 5, ".html", 5) == 0) ||
-			(strncmp(unix_path + strlen(unix_path) - 4, ",faf", 4) == 0))
-		{
-			strcpy(mimetype,"text/html");
-			found = TRUE;
-		}
-		if(strncmp(unix_path + strlen(unix_path) - 3, ".js", 3) == 0) {
-			strcpy(mimetype,"application/javascript");
-			found = TRUE;
 		}
 	}
 

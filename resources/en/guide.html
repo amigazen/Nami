@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+	"http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Nami | Guide</title>
+<link rel="stylesheet" type="text/css" href="nami.css">
+</head>
+
+<body>
+
+<ul class="site-nav">
+<li><a href="about:welcome">Welcome</a></li>
+<li class="here"><a href="about:guide">Guide</a></li>
+<li><a href="about:credits">Credits</a></li>
+<li><a href="about:licence">Licence</a></li>
+<li><a href="https://www.amigazen.com/nami/">amigazen.com</a></li>
+</ul>
+
+<div class="wave-band"></div>
+
+<div class="page">
+
+<p class="kicker">Documentation</p>
+<h1>Nami Guide</h1>
+<p class="lead">AmigaOS-specific notes for the Nami fork of NetSurf. Core browsing behaviour matches NetSurf; this guide focuses on what is distinctive aboard this ship.</p>
+
+<div class="guide-toc">
+	<a href="#window">Window</a>
+	<a href="#prefs">Prefs</a>
+	<a href="#arexx">ARexx</a>
+	<a href="#themes">Themes</a>
+	<a href="#cli">CLI</a>
+	<a href="#about">about:</a>
+</div>
+
+<img class="credits-aside" src="wave-mark.png" width="136" height="136" alt="Nami Great Wave mark">
+
+<h2 id="window">Main window</h2>
+<p>The browser area renders HTML with Hubbub (parser) and LibCSS (style). Images, SVG (via Libsvgtiny), and common formats are handled by the core; the Amiga frontend supplies Intuition/ReAction chrome around that canvas.</p>
+
+<h3>Toolbar</h3>
+<dl class="terms">
+	<dt>Back / Forward</dt>
+	<dd>Step through session history. Right-click opens a short menu of recent destinations.</dd>
+	<dt>Stop / Reload</dt>
+	<dd>In Nami UI style, Stop and Reload share a slot: Stop while a page is loading, Reload otherwise. Shift-Reload forces a full refetch of page elements.</dd>
+	<dt>Home</dt>
+	<dd>Opens your configured homepage (default <code>about:welcome</code>).</dd>
+	<dt>URL bar</dt>
+	<dd>Accepts http(s) URLs and Amiga paths such as <code>RAM:index.html</code>. Local volumes are opened as files, not as invented URI schemes.</dd>
+	<dt>Search</dt>
+	<dd>Uses your default engine from Preferences → Advanced / SearchEngines.</dd>
+</dl>
+
+<h3>Nami UI style</h3>
+<p>When UI style is set to Nami, the window drops the system title-bar gadgets and draws an in-layout chrome row: close, tabs, zoom, and depth, with AWeb-style border scrollers for the document. The screen title still reflects the page; dragging the chrome row moves the window.</p>
+<p class="note"><strong>Note.</strong> UI style is frozen when a window is created. Change Preferences, then open a new window to see the other chrome.</p>
+
+<h3>Tabs and hotlist</h3>
+<p>Tabs can appear only when needed, or always (Preferences). The hotlist toolbar is available in classic NetSurf chrome; Nami style keeps the toolbar lean and relies on the Hotlist menu and bookmarks panel.</p>
+
+<h2 id="prefs">Preferences</h2>
+<p>Edit Preferences from the Settings menu. Choices are stored under your user drawer (default <code>PROGDIR:Users/&lt;user&gt;/Choices</code>). Common Amiga-flavoured options include:</p>
+<dl class="terms">
+	<dt>Display / Themes</dt>
+	<dd>Pick a theme drawer under <code>PROGDIR:Resources/Themes</code> (Default, AISSClassic, AISS, …).</dd>
+	<dt>Fonts</dt>
+	<dd>Map CSS families to Amiga fonts / TrueType via the font backends compiled into your build.</dd>
+	<dt>Cache</dt>
+	<dd>Memory and disc cache sizes — keep the disc cache on fast, writable media with the rest of the Users drawer.</dd>
+	<dt>Tabs</dt>
+	<dd>Always-show tab bar, new-tab behaviour, and related options.</dd>
+</dl>
+<p>A few options are Choices-file only (for example kiosk mode, printer unit, drag-save icons, monitor aspect). See the AmigaGuide in the distribution for the full list.</p>
+
+<h2 id="arexx">ARexx</h2>
+<p>Nami exposes an ARexx port so scripts can open URLs, control tabs, and automate browsing. Example scripts ship in the distribution <code>Rexx</code> drawer. If Nami is already running, launching it again with a URL typically forwards to the existing instance via ARexx (<code>OPEN</code> / <code>NEWTAB</code>) instead of starting a second copy.</p>
+
+<h2 id="themes">Themes and resources</h2>
+<p>Bitmaps for toolbar and pointer imagery come from the active theme. Shared documents and engines live under <code>PROGDIR:Resources</code>:</p>
+<ul>
+	<li><code>en/</code> — welcome, guide, credits, licence, and this wave-themed CSS</li>
+	<li><code>en/netsurf/</code> — archived copies of the previous NetSurf-era HTML pages</li>
+	<li><code>SearchEngines</code>, <code>ca-bundle</code>, <code>mimetypes</code>, CSS defaults</li>
+</ul>
+<p>User overrides can be placed in the current user directory; Nami searches user data, then the theme, then language Resources, then the Resources root.</p>
+
+<h2 id="cli">Command line and tooltypes</h2>
+<p>Icon tooltypes and shell arguments:</p>
+<dl class="terms">
+	<dt>URL</dt>
+	<dd>One or more addresses or Amiga files to open.</dd>
+	<dt>USERSDIR</dt>
+	<dd>Location of the Users drawer (default <code>PROGDIR:Users</code>). Always use fast, non-volatile storage.</dd>
+	<dt>USER</dt>
+	<dd>Profile name (defaults to the USER environment variable, or Default).</dd>
+</dl>
+<p>Examples:</p>
+<ul>
+	<li><code>Nami https://example.com</code></li>
+	<li><code>Nami AWeb:Docs/html4_test.html</code></li>
+	<li><code>Nami USERSDIR=RAM: RAM:index.html</code></li>
+</ul>
+<p>GNU-style core options may also be passed as <code>--option=value</code>.</p>
+
+<h2 id="about">Built-in about: pages</h2>
+<p>Besides this documentation set, the engine serves diagnostic and legal pages:</p>
+<table class="about-map" cellspacing="0" cellpadding="0" border="0">
+<tr>
+	<th>Page</th>
+	<th>Purpose</th>
+</tr>
+<tr>
+	<td><a href="about:welcome">about:welcome</a></td>
+	<td>This themed home page</td>
+</tr>
+<tr class="alt">
+	<td><a href="about:credits">about:credits</a></td>
+	<td>Project credits</td>
+</tr>
+<tr>
+	<td><a href="about:licence">about:licence</a></td>
+	<td>GPLv2 and component licences</td>
+</tr>
+<tr class="alt">
+	<td><a href="about:guide">about:guide</a></td>
+	<td>This guide</td>
+</tr>
+<tr>
+	<td><a href="about:config">about:config</a> / <a href="about:Choices">about:Choices</a></td>
+	<td>Live options dump</td>
+</tr>
+<tr class="alt">
+	<td><a href="about:about">about:about</a></td>
+	<td>Index of about: handlers</td>
+</tr>
+<tr>
+	<td><a href="about:imagecache">about:imagecache</a></td>
+	<td>Image cache stats and charts</td>
+</tr>
+</table>
+
+<div class="footer">
+	<p><a href="about:welcome">Welcome</a> · <a href="about:credits">Credits</a> · <a href="about:licence">Licence</a> · <a href="netsurf/welcome.html">Archived NetSurf docs</a></p>
+</div>
+
+</div>
+
+</body>
+</html>

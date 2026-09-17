@@ -205,7 +205,7 @@ HOOKF(void, ami_menu_item_project_about, APTR, window, struct IntuiMessage *)
 	sel = ami_misc_requester(ami_gui2_get_window(gwin),
 			title_local != NULL ? title_local : "Nami",
 			body_local != NULL ? body_local : "Nami",
-			temp2 != NULL ? temp2 : "OK",
+			temp2 != NULL ? temp2 : "Ok",
 			AMI_REQ_IMAGE_INFO);
 
 	if(temp2 != NULL)

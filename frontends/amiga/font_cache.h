@@ -20,6 +20,14 @@
 #define AMIGA_FONT_CACHE_H
 
 #include <proto/timer.h>
+#include <exec/types.h>
+
+struct OutlineFont;
+
+/* Latin-1 design-unit widths (bullet FIXED) — avoids OT_GlyphMap on measure */
+#define AMI_FONT_W_LATIN	256
+/* Sparse overflow for codepoints >= 256 */
+#define AMI_FONT_W_EXTRA	96
 
 struct ami_font_cache_node
 {
@@ -31,6 +39,14 @@ struct ami_font_cache_node
 	char *restrict italic;
 	char *restrict bolditalic;
 	struct TimeVal lastused;
+#ifndef __amigaos4__
+	/* Bullet width cache: FontGlyphCache on disk only maps code→font name */
+	UBYTE w_latin_have[AMI_FONT_W_LATIN];
+	LONG w_latin[AMI_FONT_W_LATIN];
+	UWORD w_extra_code[AMI_FONT_W_EXTRA];
+	LONG w_extra[AMI_FONT_W_EXTRA];
+	UBYTE w_extra_have[AMI_FONT_W_EXTRA];
+#endif
 };
 
 
@@ -43,6 +59,11 @@ struct ami_font_cache_node *ami_font_cache_alloc_entry(const char *font);
 /* insert a cache entry into the list (OS3) */
 void ami_font_cache_insert(struct ami_font_cache_node *nodedata, const char *font);
 
+#ifndef __amigaos4__
+/* Find open-font cache node by OutlineFont pointer (OS3 bullet path). */
+struct ami_font_cache_node *ami_font_cache_find_ofont(struct OutlineFont *ofont);
+#endif
+
 /* initialise the cache */
 void ami_font_cache_init(void);
 
@@ -50,5 +71,3 @@ void ami_font_cache_init(void);
 void ami_font_cache_fini(void);
 
 #endif
-
-

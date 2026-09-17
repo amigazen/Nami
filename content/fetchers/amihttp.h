@@ -28,6 +28,8 @@
 
 #ifdef WITH_AMIHTTP
 
+#include <exec/types.h>
+
 /**
  * Register amihttp scheme handlers for http and https.
  *
@@ -40,6 +42,14 @@ nserror fetch_amihttp_register(void);
  * OR (1UL << bit) into the main Wait()/WaitSelect() mask; -1 if unused.
  */
 BYTE fetch_amihttp_signal(void);
+
+/**
+ * Count in-flight amihttp fetches for screen-title telemetry.
+ *
+ * \param active_out  started (Perform in progress / draining) count, or NULL
+ * \param queued_out  not-yet-started count, or NULL
+ */
+void fetch_amihttp_counts(ULONG *active_out, ULONG *queued_out);
 
 #endif /* WITH_AMIHTTP */
 

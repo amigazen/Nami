@@ -264,7 +264,7 @@ void gui_window_start_throbber(struct gui_window *g)
 	ami_throbber_redraw_schedule(throbber_update_interval, g);
 }
 
-/** Prefer LED + BoingBall when both objects exist on this window. */
+/** Prefer system boingball (and LED when present). */
 static bool ami_throbber_use_sys(struct gui_window *g)
 {
 	struct gui_window_2 *gwin;
@@ -272,8 +272,7 @@ static bool ami_throbber_use_sys(struct gui_window *g)
 	gwin = ami_gui_get_gui_window_2(g);
 	if(gwin == NULL)
 		return false;
-	return (ami_gui2_get_throbber_led(gwin) != NULL &&
-		ami_gui2_get_throbber_boing(gwin) != NULL) ? true : false;
+	return (ami_gui2_get_throbber_boing(gwin) != NULL) ? true : false;
 }
 
 /**
@@ -298,12 +297,16 @@ static void ami_throbber_draw_sys(struct gui_window *g, struct IBox *bbox, BOOL 
 	boing = ami_gui2_get_throbber_boing(gwin);
 	vals = ami_gui2_get_throbber_led_vals(gwin);
 	win = ami_gui_get_window(g);
-	if(led == NULL || boing == NULL || vals == NULL || win == NULL)
+	if(boing == NULL || win == NULL)
 		return;
 
-	lim = (struct Image *)led;
-	led_w = (lim->Width > 0) ? lim->Width : 14;
-	bx = bbox->Left + led_w + 4;
+	led_w = 0;
+	bx = bbox->Left;
+	if(led != NULL) {
+		lim = (struct Image *)led;
+		led_w = (lim->Width > 0) ? lim->Width : 14;
+		bx = bbox->Left + led_w + 4;
+	}
 
 	dri = GetScreenDrawInfo(win->WScreen);
 	if(dri != NULL) {
@@ -313,10 +316,12 @@ static void ami_throbber_draw_sys(struct gui_window *g, struct IBox *bbox, BOOL 
 				(WORD)(bbox->Top + bbox->Height - 1));
 	}
 
-	/* LED_Raw: all segments = solid activity lamps */
-	vals[0] = active ? ((ami_gui_get_throbber_frame(g) & 1) ? 0x7F7F : 0) : 0;
-	SetAttrs(led, LED_Values, vals, LED_Raw, TRUE, TAG_DONE);
-	DrawImage(win->RPort, lim, bbox->Left, bbox->Top);
+	if(led != NULL && vals != NULL) {
+		/* LED_Raw: all segments = solid activity lamps */
+		vals[0] = active ? ((ami_gui_get_throbber_frame(g) & 1) ? 0x7F7F : 0) : 0;
+		SetAttrs(led, LED_Values, vals, LED_Raw, TRUE, TAG_DONE);
+		DrawImage(win->RPort, (struct Image *)led, bbox->Left, bbox->Top);
+	}
 
 	if(active) {
 		imsg.MethodID = IM_MOVE;

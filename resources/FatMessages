@@ -122,11 +122,11 @@ it.all.styls:fogli di stile
 nl.all.styls:stijlbladen
 zh_CN.all.styls:样式表
 
-en.all.OK:OK
-de.all.OK:OK
-fr.all.OK:OK
-it.all.OK:OK
-nl.all.OK:OK
+en.all.OK:Ok
+de.all.OK:Ok
+fr.all.OK:Ok
+it.all.OK:Ok
+nl.all.OK:Ok
 zh_CN.all.OK:好的
 
 en.all.Selecting:Selecting

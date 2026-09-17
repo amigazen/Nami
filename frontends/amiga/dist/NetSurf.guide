@@ -110,13 +110,27 @@ This section contains options for exporting to PDF.  It is not enabled in curren
 @endnode
 
 @node cli "Command line options"
-NetSurf NSOPTS/M,URL/K,USERSDIR/K,FORCE/S
+Nami NAMI/S,NETSURF/S,USER=USERSDIR/K,URL/M
 
 Where:
-URL      = Address of page to open on startup
-USERSDIR = Locations of user directories (see @{"tooltypes" link tooltypes})
-FORCE    = Force new instance of NetSurf to open (has some limitations, use for debugging only)
-NSOPTS   = Catches everything else and passes it to the NetSurf core command line parser
+NAMI     = Force Nami chrome for this launch (overrides Prefs UI style)
+NETSURF  = Force classic NetSurf chrome for this launch
+USERSDIR = Location of the Users drawer (see @{"tooltypes" link tooltypes})
+URL      = One or more addresses or Amiga files to open (positional or URL=)
+
+Examples:
+  Nami ?
+  Nami https://example.com
+  Nami NAMI https://example.com
+  Nami NETSURF AWeb:Docs/html4_test.html
+  Nami USERSDIR=RAM: RAM:index.html
+
+Type "Nami ?" for the template summary.
+Amiga Vol:path arguments are opened as local files (not as URI schemes).
+GNU-style core options may also be passed as --option=value.
+If Nami is already running, URLs are sent to that instance via ARexx
+(OPEN ? NEW or NEWTAB). With no URL, the homepage is opened in a new
+window/tab and the existing instance is brought to the front.
 @endnode
 
 @node tooltypes "ToolTypes"
@@ -128,6 +142,13 @@ The user directories contain user-specific preferences and cache data.  Always l
 
 @{b}USER@{ub}
 Current user.  Defaults to the value of the USER env-var, or Default.
+
+@{b}NAMI@{ub}
+Force Nami UI chrome for this launch (overrides Prefs).
+
+@{b}NETSURF@{ub}
+Force classic NetSurf UI chrome for this launch (overrides Prefs).
+If both NAMI and NETSURF are present, NAMI wins (same as the Shell switches).
 @endnode
 
 @node options "Choices file"
@@ -313,7 +334,7 @@ eg.
 
 Will look something like the following within the menu:
 
-|NetSurf »| - |NetSurf Homepage  |
+|NetSurf ï¿½| - |NetSurf Homepage  |
 |---------|   |More NetSurf links|
 |Google   |
 
@@ -414,7 +435,7 @@ chris\@unsatisfactorysoftware.co.uk
 The pointer images, AISS theme icon and Throbber were drawn by Martin 'Mason' Merz.
 http://www.masonicons.de
 
-The default theme icon was adapted from the NetSurf logo by Marko K. Seppänen.
+The default theme icon was adapted from the NetSurf logo by Marko K. Seppï¿½nen.
 
 All other code and files are the same for all platforms and credited in the files and/or on the NetSurf website.
 http://www.netsurf-browser.org

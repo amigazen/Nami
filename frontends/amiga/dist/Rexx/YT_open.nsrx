@@ -6,16 +6,16 @@ options results
 
 if ~open('yt','AppDir:YT','R') then do
 	GETSCREENNAME
-	address command 'requestchoice >NIL: "NetSurf" "YT must be installed for this script to function.*n*nIt can be downloaded from OS4Depot:video/misc/yt" "OK" PubScreen='||result
+	address command 'requestchoice >NIL: "NetSurf" "YT must be installed for this script to function.*n*nIt can be downloaded from OS4Depot:video/misc/yt" "Ok" PubScreen='||result
 	OPEN 'http://os4depot.net/?function=showfile&file=video/misc/yt.lha' NEWTAB ACTIVE		/* This doesn't work due to a NetSurf(?) bug */
 	exit
 end
 close('yt')
 
-address COMMAND 'Run >NIL: RequestChoice Title="NetSurf" BODY="When finished with YT, click OK to return to NetSurf" GADGETS="OK" INACTIVE >NIL:'	/* Hack to get Workbench to front */
+address COMMAND 'Run >NIL: RequestChoice Title="NetSurf" BODY="When finished with YT, click Ok to return to NetSurf" GADGETS="Ok" INACTIVE >NIL:'	/* Hack to get Workbench to front */
 
 GETURL
-/*address command 'requestchoice >NIL: "TEST" "'||result||'" "OK"'*/
+/*address command 'requestchoice >NIL: "TEST" "'||result||'" "Ok"'*/
 address command 'AppDir:YT <>CON:0/30/640/256/YT/AUTO/CLOSE "'||result||'"'
 
 /*TOBACK*/		/* ideally we'd bring Workbench to front */

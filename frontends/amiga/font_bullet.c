@@ -974,7 +974,6 @@ static inline int32 ami_font_width_glyph(struct OutlineFont *ofont,
 	FIXED width_fx;
 	struct MinList *gwlist;
 	struct GlyphWidthEntry *gwnode;
-	struct GlyphMap *glyph;
 	bool skip_c2;
 	uint32 long_char_1;
 	uint32 long_char_2;
@@ -987,7 +986,6 @@ static inline int32 ami_font_width_glyph(struct OutlineFont *ofont,
 	width_fx = 0;
 	gwlist = NULL;
 	gwnode = NULL;
-	glyph = NULL;
 	skip_c2 = false;
 	long_char_1 = 0;
 	long_char_2 = 0;
@@ -1048,45 +1046,77 @@ static inline int32 ami_font_width_glyph(struct OutlineFont *ofont,
 		}
 	}
 #else
-	ge = ami_bullet_engine(ofont);
-	if (ge == NULL || BulletBase == NULL) {
-		return 0;
-	}
+	/*
+	 * Measure without OT_GlyphMap — that rasterises every glyph and made
+	 * simple pages crawl. Prefer WidthList + per-font FIXED cache
+	 * (FontGlyphCache on disk only maps Unicode → font name).
+	 */
+	{
+		struct ami_font_cache_node *fnode;
+		ULONG slot;
+		int have;
 
-	if (SetInfo(ge,
-			OT_GlyphCode, long_char_1,
-			OT_GlyphCode2, long_char_2,
-			TAG_END) != OTERR_Success) {
-		return 0;
-	}
-
-	if (skip_c2 == false &&
-	    ami_bullet_is_space(long_char_1) == FALSE &&
-	    ami_bullet_is_space(long_char_2) == FALSE) {
-		ObtainInfo(ge, OT_TextKernPair, &kern, TAG_END);
-	}
-
-	/* Prefer GlyphMap width (matches plot); else WidthList (whitespace). */
-	if (ObtainInfo(ge, OT_GlyphMap, &glyph, TAG_END) == OTERR_Success &&
-	    glyph != NULL) {
-		width_fx = glyph->glm_Width;
-		ReleaseInfo(ge, OT_GlyphMap, glyph, TAG_END);
-	} else {
-		if (SetInfo(ge, OT_GlyphCode2, long_char_1, TAG_END) ==
-				OTERR_Success) {
-			if (ObtainInfo(ge, OT_WidthList, &gwlist, TAG_END) ==
-					OTERR_Success && gwlist != NULL) {
-				gwnode = (struct GlyphWidthEntry *)gwlist->mlh_Head;
-				if (gwnode != NULL &&
-				    gwnode->gwe_Node.mln_Succ != NULL) {
-					width_fx = gwnode->gwe_Width;
-				}
-				ReleaseInfo(ge, OT_WidthList, gwlist, TAG_END);
+		fnode = ami_font_cache_find_ofont(ofont);
+		have = 0;
+		if(fnode != NULL && long_char_1 < AMI_FONT_W_LATIN &&
+		   fnode->w_latin_have[long_char_1]) {
+			width_fx = fnode->w_latin[long_char_1];
+			have = 1;
+		} else if(fnode != NULL && long_char_1 >= AMI_FONT_W_LATIN) {
+			slot = (ULONG)long_char_1 % AMI_FONT_W_EXTRA;
+			if(fnode->w_extra_have[slot] &&
+			   fnode->w_extra_code[slot] == (UWORD)long_char_1) {
+				width_fx = fnode->w_extra[slot];
+				have = 1;
 			}
 		}
-	}
 
-	char_advance = (int32)(((width_fx - kern) * (FIXED)emwidth) >> 16);
+		ge = ami_bullet_engine(ofont);
+		if (ge == NULL || BulletBase == NULL) {
+			return 0;
+		}
+
+		if (SetInfo(ge,
+				OT_GlyphCode, long_char_1,
+				OT_GlyphCode2, long_char_2,
+				TAG_END) != OTERR_Success) {
+			return 0;
+		}
+
+		if (skip_c2 == false &&
+		    ami_bullet_is_space(long_char_1) == FALSE &&
+		    ami_bullet_is_space(long_char_2) == FALSE) {
+			ObtainInfo(ge, OT_TextKernPair, &kern, TAG_END);
+		}
+
+		if(have == 0) {
+			if (SetInfo(ge, OT_GlyphCode2, long_char_1, TAG_END) ==
+					OTERR_Success) {
+				if (ObtainInfo(ge, OT_WidthList, &gwlist, TAG_END) ==
+						OTERR_Success && gwlist != NULL) {
+					gwnode = (struct GlyphWidthEntry *)gwlist->mlh_Head;
+					if (gwnode != NULL &&
+					    gwnode->gwe_Node.mln_Succ != NULL) {
+						width_fx = gwnode->gwe_Width;
+					}
+					ReleaseInfo(ge, OT_WidthList, gwlist, TAG_END);
+				}
+			}
+			if(fnode != NULL) {
+				if(long_char_1 < AMI_FONT_W_LATIN) {
+					fnode->w_latin[long_char_1] = width_fx;
+					fnode->w_latin_have[long_char_1] = 1;
+				} else {
+					slot = (ULONG)long_char_1 % AMI_FONT_W_EXTRA;
+					fnode->w_extra_code[slot] = (UWORD)long_char_1;
+					fnode->w_extra[slot] = width_fx;
+					fnode->w_extra_have[slot] = 1;
+				}
+			}
+		}
+
+		char_advance = (int32)(((width_fx - kern) * (FIXED)emwidth) >> 16);
+	}
 #endif
 
 	return char_advance;

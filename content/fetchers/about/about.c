@@ -320,6 +320,18 @@ static bool fetch_about_welcome_handler(struct fetch_about_context *ctx)
 }
 
 
+/**
+ * Handler to generate about scheme Nami guide page
+ *
+ * \param ctx The fetcher context.
+ * \return true if handled false if aborted.
+ */
+static bool fetch_about_guide_handler(struct fetch_about_context *ctx)
+{
+	return fetch_about_redirect(ctx, "resource:guide.html");
+}
+
+
 /* Forward declaration because this handler requires the handler table. */
 static bool fetch_about_about_handler(struct fetch_about_context *ctx);
 
@@ -353,6 +365,13 @@ struct about_handlers about_handler_list[] = {
 		SLEN("welcome"),
 		NULL,
 		fetch_about_welcome_handler,
+		false
+	},
+	{
+		"guide",
+		SLEN("guide"),
+		NULL,
+		fetch_about_guide_handler,
 		false
 	},
 	{

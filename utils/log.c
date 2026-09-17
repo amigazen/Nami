@@ -76,13 +76,16 @@ static const char *nslog_gettime(void)
 
 	struct timeval tv;
 	struct timeval now_tv;
+	struct timeval start_copy;
 
 	if (!timerisset(&start_tv)) {
 		gettimeofday(&start_tv, NULL);
 	}
 	gettimeofday(&now_tv, NULL);
 
-	timeval_subtract(&tv, &now_tv, &start_tv);
+	/* timeval_subtract mutates its third arg — never pass start_tv live */
+	start_copy = start_tv;
+	timeval_subtract(&tv, &now_tv, &start_copy);
 
 	snprintf(buff, sizeof(buff),"(%ld.%06ld)",
 		 (long)tv.tv_sec, (long)tv.tv_usec);

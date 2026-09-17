@@ -1789,4 +1789,32 @@ fetch_amihttp_signal(void)
 	return amihttp_notify_sig;
 }
 
+void
+fetch_amihttp_counts(ULONG *active_out, ULONG *queued_out)
+{
+	struct amihttp_fetch_info *f;
+	ULONG active;
+	ULONG queued;
+
+	active = 0;
+	queued = 0;
+	f = amihttp_ring;
+	if (f != NULL) {
+		do {
+			if (f->abort == false) {
+				if (f->started)
+					active++;
+				else
+					queued++;
+			}
+			f = f->r_next;
+		} while (f != amihttp_ring);
+	}
+
+	if (active_out != NULL)
+		*active_out = active;
+	if (queued_out != NULL)
+		*queued_out = queued;
+}
+
 #endif /* WITH_AMIHTTP */

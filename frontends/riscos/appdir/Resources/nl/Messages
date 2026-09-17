@@ -1,1 +1,636 @@
-../../../../../resources/nl/Messages
+# This messages file is automatically generated from resources/FatMessages
+# at build-time.  Please go and edit that instead of this.
+
+NetSurf:Nami
+NetSurfCopyright:© 2003-2026 The NetSurf Developers (Nami is based on NetSurf)
+Yes:Ja
+No:Nee
+Replace:Vervang bestand
+DontReplace:Annuleer bewaaractie
+Remove:Verwijder adres
+DontRemove:Niet verwijderen
+obj:object
+objs:objecten
+styl:stijlblad
+styls:stijlbladen
+OK:Ok
+Selecting:selecteren
+FrameDrag:frames aan het aanpassen
+Bytes: B
+kBytes: KB
+MBytes: MB
+GBytes: GB
+KiBytes: KiB
+MiBytes: MiB
+GiBytes: GiB
+TiBytes: TiB
+PiBytes: PiB
+EiBytes: EiB
+Form_Submit:Versturen
+Form_Reset:Opnieuw
+Form_None:
+Form_Many:(Veel)
+Form_Drop:Bestand hier plaatsen
+Form_Drop:Sleep bestand hierheen
+FormSelect:Klikken selecteert een formulieritem
+FormCheckbox:Klikken selecteert deze optie
+FormRadio:Klikken kiest deze optie
+FormSubmit:Informatie versturen naar %s
+FormBadSubmit:Waarschuwing: informatie kan niet verzonden worden
+FormButton:Waarschuwing: knop kan niet geactiveerd worden
+FormTextarea:Klikken om tekst te bewerken
+FormTextbox:Klikken om dit veld te bewerken
+FormReset:Formulier opnieuw instellen (niet geïmplemented)
+FormFile:Het bestand hier plaatsen voor verzenden
+SelectMenu:Selecteer
+BMPTitle:%s (BMP-afbeelding %lux%lu punten)
+GIFTitle:%s (GIF-afbeelding %lux%lu punten)
+ICOTitle:%s (ICO-afbeelding %lux%lu punten)
+JPEGTitle:%s (JPEG-afbeelding %lux%lu punten)
+PNGTitle:%s (PNG-afbeelding %lux%lu punten)
+SpriteTitle:%s (Sprite-afbeelding %lux%lu punten)
+WebPTitle:%s (WebP-afbeelding %lux%lu punten)
+DataTypesTitle:%s (%s afbeelding %lux%lu punten)
+Encoding0:van HTTP-koppen
+Encoding1:gedetecteerd
+Encoding2:van <meta>
+EncodingUnk:Onbekend
+Not2xx:Server meldt een fout
+InvalidURL:Het adres <em>%s</em> klopt niet.
+ErrorPage:<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Pagina fout</title></head><body><h1>Sorry, Nami kan deze pagina</h1><p><strong>%s</strong></p>niet tonen.</body></html>
+NoMemory:Nami heeft gebrek aan voldoende geheugen. Maak wat geheugen vrij en probeer het dan nog eens.
+SaveError:Wegens een fout kan dit bestand niet opgeslagen worden:
+LoadError:Wegens een fout kan dit bestand niet geladen worden:
+MiscError:Er trad een onverwachte fout op:
+FileError:Bestand lijkt niet te bestaan:
+PrintError:Fout tijdens afdrukken:
+NoDiscSpace:Onvoldoende ruimte beschikbaar op schijf.
+HotlistSaveError:De favorietenlijst kon niet correct worden bewaard.
+TreeLoadError:De gegevensstructuur kon niet correct worden geladen.
+NoDirError:%s is geen map
+NoNameError:Geef een naam op
+NoURLError:Geef een adres op
+URIError:Nami kon dit URI-bestand niet verwerken vanwege een syntaxisfout.
+EmptyError:bestand is leeg.
+SearchError:Ongeldige zoekopdracht.
+EncNotRec:Codeertype is niet herkend.
+FileOpenError:kan bestand '%s' niet openen
+DirectoryError:map '%s' bestaat reeds
+Timeout:This site took too long to respond
+BadURL:The given URL was not able to be parsed
+CompError:Niet te openen
+BMConvErr:Nami requires guigfx.library to display images in this mode
+MultiTabClose:Er zijn meerdere tabbladen geopend. Tabbladen allemaal sluiten?
+TCPIPShutdown:De TCP/IP-stack meldt dat deze wordt afgesloten waardoor Nami gestopt moet worden. Nami zal stoppen in 5 seconden, tenzij het afsluiten wordt afgebroken.
+AbortShutdown:Afsluiten afbreken
+AbortDownload:Zeker weten dat deze ophaalopdracht afgebroken moet worden?
+QuitDownload:Eén of meer ophaalopdrachten zijn nog in uitvoering. Toch afbreken?
+OverwriteFile:Een bestand met deze naam bestaat al en zal door deze actie overschreven worden.
+RemoveHotlist:Zeker weten dat dit adres uit de favorietenlijst verwijderd moet worden?
+Progress:%s van %s
+ProgressU:%s
+RecPercent:ontvangen %s (%u%%)
+Received:ontvangen %s
+Redirecting:doorverwijzen...
+Loading:laden
+Fetching:ophalen
+Processing:verwerking
+Formatting:opmaken
+Done:klaar
+Stopped:gestopt
+UnsupportedRedirect:foutief doorverwijzen naar adres
+CyclicRedirect:Redirected too many times. Try deleting your cookies
+UnsafeRedirect:Redirected to an unsafe URL
+FetchFailed:Dit document kan niet worden opgehaald.
+NotCSS:melding: stijlblad is geen CSS
+NotFavIco:websitesymbool wordt niet ondersteund
+BadObject:melding: fout objecttype
+ObjError:fout bij het laden object: %s
+ParsingFail:fout bij ontleden van dit document.
+CSSGeneric:fout bij het verwerken van de CSS
+CSSBase:basisstijlblad kan niet worden geladen
+BadGIF:fout bij lezen GIF.
+BadBMP:fout bij lezen BMP.
+BadICO:fout bij lezen ICO.
+PNGError:fout bij omzetting PNG.
+MNGError:MNG-bibliotheekfout: %i
+BadSprite:foutief sprite-bestand.
+HTTP0:OK
+HTTP200:OK
+HTTP201:Aangemaakt
+HTTP202:Aanvaard
+HTTP203:Niet-gemachtigde informatie
+HTTP204:Geen inhoud
+HTTP205:Inhoud opnieuw instellen
+HTTP206:Gedeeltelijke inhoud
+HTTP300:Meerkeuze
+HTTP301:Definitief verplaatst
+HTTP302:Gevonden
+HTTP303:Zie andere
+HTTP304:Niet gewijzigd
+HTTP305:Gebruik Proxy
+HTTP307:Tijdelijke omleiding
+HTTP400:Foute aanvraag
+HTTP401:Niet geautoriseerd
+HTTP402:Betalende toegang
+HTTP403:Verboden toegang
+HTTP404:Niet gevonden
+HTTP405:Methode niet toegestaan
+HTTP406:Niet aanvaardbaar
+HTTP407:Authenticatie op de proxy-server verplicht
+HTTP408:Aanvraagtijd verstreken
+HTTP409:Conflict
+HTTP410:Verdwenen
+HTTP411:Lengte benodigd
+HTTP412:Niet voldaan aan vooraf gestelde voorwaarde
+HTTP413:Aanvraag te groot
+HTTP414:Aanvraagadres te lang
+HTTP415:Media-type niet ondersteund
+HTTP416:Aangevraagd gedeelte niet opvraagbaar
+HTTP417:Niet voldaan aan verwachting
+HTTP500:Interne serverfout
+HTTP501:Niet geïmplementeerd
+HTTP502:Ongeldige Gateway
+HTTP503:Dienst niet beschikbaar
+HTTP504:Aanvraagtijd bij Gateway verstreken
+HTTP505:HTTP-versie wordt niet ondersteund
+FileIndex:Index van %s
+FileParent:^ Een mapniveau hoger
+FileDirectory:Map
+FileName:Naam
+FileSize:Grootte
+FileDate:Datum
+FileTime:Tijd
+FileType:Type
+NotFound:Niet gevonden
+Next:Volgende
+Prev:Vorige
+ShowAll:Toon alles
+CaseSens:Hoofdlettergevoelig
+LoginTitle:Authentication Requested
+LoginDescription:The site %s with realm "%s" is requesting credentials for access.
+LoginAgain:The credentials for the site %s and realm "%s" were rejected.
+Host:Server
+Realm:Gebied
+Username:Gebruikersnaam
+Password:Wachtwoord
+Login:Login
+Cancel:Annuleer
+PrivacyTitle:Privacyfout
+PrivacyDescription:A privacy error occurred while communicating with %s this may be a site configuration error or an attempt to steal private information (passwords, messages or credit cards)
+ViewCertificates:Bekijk certificaatdetails
+ViewCertificatesNotPossible:Certificaatinformatie is niet beschikbaar voor weergave
+Proceed:Doorgaan
+Backtosafety:Terug naar veiligheid
+SSLCertErrOk:The certificate has no errors.
+SSLCertErrUnknown:An unknown error occurred while processing the certificate.
+SSLCertErrBadIssuer:The issuer of this certificate is not known. This may occur if the browser cannot access the certificate authority (CA) bundle.
+SSLCertErrBadSig:The certificate is improperly signed.
+SSLCertErrTooYoung:The certificate is not yet valid.
+SSLCertErrTooOld:The certificate has expired.
+SSLCertErrSelfSigned:The certificate is self signed.
+SSLCertErrChainSelfSigned:The certificate chain is self signed.
+SSLCertErrRevoked:The certificate has been revoked by the issuer.
+SSLCertErrHostnameMismatch:The certificate is for a different host than the server.
+SSLCertErrCertMissing:The certificate was missing from the chain.
+TimeoutTitle:Connection timed out
+TimeoutDescription: A connection to %s could not be established. The site may be temporarily unavailable or too busy to respond.
+Backtoprevious:Back
+TryAgain:Try Again
+FetchErrorTitle:Error occurred fetching page
+FetchErrorDescription:An error occurred when connecting to %s
+FetchFailedToFinish:The fetch for this request failed to complete
+FetchErrorCode:Error code
+FetchFile:fetching file
+SSLCerts:SSL-certificaten
+SSLError:Nami kan de authenticiteit van een SSL-certificaat niet controleren. Controleer onderstaande details.
+SSL_Certificate_Subject:Subjekt: %s
+SSL_Certificate_Issuer:Uitgever: %s
+SSL_Certificate_Version:Versie: %ld
+SSL_Certificate_ValidFrom:Geldig vanaf: %s
+SSL_Certificate_ValidTo:Geldig tot: %s
+SSL_Certificate_Type:Type: %i
+SSL_Certificate_Serial:Serienr.: %ld
+SSL_Certificate_Accept:Accepteer
+SSL_Certificate_Reject:Weiger
+PrintSheetFilled:pagina
+PrintSheetsFilled:pagina's
+Printer:Printer
+Copies:Kopieën
+Printing:Pagina aan het afdrukken
+TreeAdded:Toegevoegd: %s
+TreeLast:Laatst bezocht: %s
+TreeVisited:Bezocht: %s keer
+TreeVisits:Bezocht: %i keer
+TreeUnknown:Onbekend
+TreeValue:Waarde: %s
+TreeComment:Commentaar: %s
+TreeDomain:Domein: %s%s
+TreePath:Pad: %s%s
+TreeExpires:Verloopt op: %s
+TreeLastUsed:Laatst gebruikt: %s
+TreeSecure:Alleen veilige sites: %s
+TreeVersion:Versie: %s
+TreePersistent:Permanent: %s
+TreeHeaders: (van koppen)
+TreeVersion0:Netscape
+TreeVersion1:RFC 2109
+TreeVersion2:RFC 2965
+TreeSession:Sessie-einde
+TreeUnused:Ongebruikt
+TreeImport:Geïmporteerd adres
+TreeNewLink:Nieuw webadres
+TreeNewFolder:Nieuwe map
+TreeLaunch:Bezoek webadres
+TreeDelete:Verwijder
+TreeDefault:Stel in als standaard
+TreeClear:Annuleer standaard
+TreeEdit:Wijzig titel
+TreeviewLabelTitle:Titel:
+TreeviewLabelURL:Adres:
+TreeviewLabelLastVisit:Laatste bezoek:
+TreeviewLabelVisits:Bezocht:
+TreeviewLabelPeriod:Periode:
+TreeviewLabelName:Naam:
+TreeviewLabelContent:Inhoud:
+TreeviewLabelDomain:Domein:
+TreeviewLabelPath:Pad:
+TreeviewLabelExpires:Verloopt:
+TreeviewLabelLastUsed:Laatst gebruikt:
+TreeviewLabelRestrictions:Beperkingen:
+TreeviewLabelVersion:Versie:
+TreeviewLabelPersistent:Permanent:
+TreeviewLabelDomainFolder:Domeinmap:
+TreeviewLabelSerial:Serienr:
+TreeviewLabelType:Type:
+TreeviewLabelValidUntil:Geldig tot:
+TreeviewLabelValidFrom:Geldig vanaf:
+TreeviewLabelIssuer:Uitgever:
+TreeviewLabelFolder:Map:
+CookieManagerSession:Session
+CookieManagerHTTPS:Veilige websites alleen via https
+CookieManagerSecure:Alleen veilige verbindingen
+CookieManagerHTTP:Alleen HTTP-verbindingen
+HotlistDefaultFolderName:Ongesorteerde items
+NewFolderName:Nieuwe map
+NoTitle:<Naamloos>
+TreeHotlist:Nami-favorieten
+NetSurfDesc:Nami is a small, fast web browser for AmigaOS, based on NetSurf.
+NewLink:Nieuw adres aanmaken
+NewFolder:Nieuwe map aanmaken
+EditTitle:Wijzig titel
+EditLink:Bewerk adres
+EditFolder:Hernoem map
+HotlistHomepage:Nami-startpagina
+HotlistDocumentation:Documentatie
+HotlistContact:Contacteer (Eng.) de NetSurf-ontwikkelaars
+HotlistDownloads:Haal de laatste versie op
+HotlistMenu:Favorietenmenu
+HotlistToolbar:Favorietenwerkbalk
+GlobalHistory:Browsergeschiedenis
+DomainAll:(Alle domeinen)
+DateToday:Vandaag
+DateYesterday:Gisteren
+Date2Days:2 dagen geleden
+Date3Days:3 dagen geleden
+Date4Days:4 dagen geleden
+Date5Days:5 dagen geleden
+Date6Days:6 dagen geleden
+Date1Week:Een week geleden
+Date2Week:2 weken geleden
+Date3Week:3 weken geleden
+Sunday:Zondag
+Monday:Maandag
+Tuesday:Dinsdag
+Wednesday:Woensdag
+Thursday:Donderdag
+Friday:Vrijdag
+Saturday:Zaterdag
+Info:Informatie
+Open:Open
+Choices:Keuzes...
+Quit:Stop
+OpenURL:Weblocatie
+Page:Pagina
+Object:Object
+Navigate:Navigeer
+View:Weergave
+Utilities:Diversen
+Help:Hulp
+Export:Exporteer
+SaveURL:Bewaar adres
+PDF:PDF
+LinkText:Tekstbestand
+ObjInfo:Informatie
+ObjSave:Bewaar
+ObjPrint:Druk af
+ObjReload:Herlaad
+Sprite:Sprite-bestand
+ObjDraw:Draw-bestand
+LinkSave:Bewaar
+LinkDload:Haal op
+LinkNew:Nieuw venster
+SelSave:Bewaar
+Home:Startpagina
+Back:Vorige pagina
+Forward:Volgende pagina
+UpLevel:Niveau omhoog
+Stop:Breek ophaalproces af
+Images:Toon afbeeldingen
+Toolbars:Toon gereedschapbalken
+Render:Pagina-opbouw
+OptDefault:Stel in als standaard
+ForeImg:Voorgrondafbeeldingen
+BackImg:Achtergrondafbeeldingen
+ToolButtons:Knoppen
+ToolAddress:Adresveld
+ToolThrob:Laadactiviteit
+ToolStatus:Statusbalk
+RenderAnims:Buffer animaties
+RenderAll:Buffer gehele weergave
+Hotlist:Favorieten
+History:Geschiedenis
+Cookies:Cookies
+Window:Vensteromvang en positie
+HotlistAdd:Voeg pagina toe
+ShowCookies:Cookiesbeheer...
+DeleteCookies:Verwijder cookies
+WindowSave:Bewaar als standaard
+WindowStagr:Open vensters stapelgewijs
+WindowSize:Kopieer voorgaand venster
+WindowReset:Herstel standaardwaarden
+HelpCredits:Bijdragen
+HelpLicence:Licentie
+Toolbar:Gereedschapbalk
+EditToolbar:Aanpasmodus
+Selection:Selectie
+Edit:Wijzig naam
+ResetUsage:Statistiekgebruik op nul
+New:Nieuw
+Expand:Klap uit
+Collapse:Klap in
+Tree:Tree
+TreeExport:Exporteer...
+Folder:Map
+Link:Koppeling
+All:Alles
+Folders:Mappen
+Links:Adressen
+Domains:Domeinen
+URLSuggest:Recente adressen
+Languages:Taal
+ProxyType:Proxy-type
+ProxyNone:Geen proxy
+ProxyNoAuth:Eenvoudige proxy
+ProxyBasic:Basisauthenticatie
+ProxyNTLM:NTLM-authenticatie
+Fonts:Lettertypen
+DefaultFonts:Lettertypesoorten
+Display:Weergave
+ImgStyle0:RISC OS-routines
+ImgStyle1:Directe weergave
+ImgStyle2:Kleurbenadering
+ImgStyle3:Foutdiffusie
+Project:Project
+NewWindowNS:Nieuw venster
+NewTab:Nieuw tabblad
+CloseTab:Sluit tabblad
+CloseWindow:Sluit venster
+SaveAsNS:Bewaar als
+Source:Bron...
+TextNS:Tekst...
+SaveCompNS:Compleet...
+PDFNS:PDF...
+IFF:IFF...
+OpenFile:Open lokaal bestand...
+About:Programma-informatie
+PrintNS:Druk af...
+CutNS:Knip uit
+CopyNS:Kopieer
+PasteNS:Plak in
+SelectAllNS:Selecteer alles
+ClearNS:Deselecteer
+Undo:Maak ongedaan
+Redo:Opnieuw
+Browser:Browser
+HistGlobalNS:Toon browsergeschiedenis
+HistLocalNS:Toon venstergeschiedenis
+ShowCookiesNS:Toon cookies
+FindTextNS:Zoek tekst...
+Redraw:Bouw pagina opnieuw op
+ScaleNS:Schaal
+ScaleInc:Vergroot
+ScaleDec:Verklein
+ScaleNorm:Normaal
+HotlistShowNS:Toon favorieten
+SettingsEdit:Wijzig voorkeuren
+Settings:Instellingen
+SnapshotWindow:Schermopnamevenster
+SettingsSave:Bewaar instellingen
+ARexx:ARexx
+ARexxExecute:Voer script uit...
+Link:Koppeling
+LinkNewTab:Open in nieuw tabblad
+LinkNewWin:Open in nieuw venster
+CopyURL:Kopieer adres naar klembord
+CopyClip:Kopieer naar klembord
+SaveAs:Bewaar als...
+SaveIFF:Bewaar als IFF...
+SaveComplete:Bewaar alles...
+Close:Sluit
+CloseInactive:Close inactive tabs
+ObjShow:Toon object
+Frame:Vensterkader
+FrameNewWin:Toon in nieuw venster
+FrameNewTab:Toon in nieuw tabblad
+FrameOnly:Toon alleen dit vensterkader
+SelectFile:Selecteer bestand...
+ExternalApp:Open in ander programma
+Download:%s van %s  •  %s/s  •  nog %s
+DownloadU:%s van onbekend  •  %s/s  •  %s totaal
+Downloaded:%s compleet • gemiddeld %s/s • %s totaal
+Unwritten:Informatie naar bestand wegschrijven is mislukt.
+Abort:Breek af
+amiDownloading:Nami: Downloading...
+amiDownload:%ld van %ld bytes opgehaald
+amiDownloadU:%ld bytes opgehaald
+amiDownloadComplete:Nami: Download voltooid
+amiSizeExisting:Bestaande bestandsgrootte:
+amiSizeNew:Nieuwe bestandsgrootte:
+ScrollUp:Klik op de pijl om omhoog te gaan
+ScrollPUp:Klik om 1 pagina omhoog te gaan
+ScrollV:Verschuif de balk om verticaal over de pagina te gaan
+ScrollPDown:Klik om 1 pagina omlaag te gaan
+ScrollDown:Klik op de pijl om omlaag te gaan
+ScrollLeft:Klik op de pijl om naar links te gaan
+ScrollPLeft:Klik om 1 pagina naar links te gaan
+ScrollH:Verschuif de balk om horizontaal over de pagina te gaan
+ScrollPRight:Klik om 1 pagina naar rechts te gaan
+ScrollRight:Klik op de pijl om naar rechts te gaan
+ScrollBoth:Verplaats de muis met ingedrukte muisknop om de vensterinhoud te verplaatsen
+SelectClick:Klik op een item om het te selecteren.
+SelectMClick:Klik op een item om het te selecteren, er kunnen meerdere opties tegelijkertijd geselecteerd worden
+SelectClose:Klik om het geselecteerde menu te sluiten
+SaveSource:Bron
+SaveDraw:Webpagina
+SaveText:Webpagina
+SaveObject:Object
+SaveLink:Koppeling
+SaveSelection:Selectie
+ThemeInstActive:Een thema wordt momenteel opgehaald of geïnstalleerd. Wacht tot het is geïnstalleerd of annuleer de opdracht voordat meer thema's geïnstalleerd worden.
+ThemeInstDown:Wacht tot het thema is opgehaald.
+ThemeInvalid:Het opgehaalde thema is niet (meer) in orde of vereist een nieuwere Nami-versie.
+ThemeInstall:Moet het thema '%s' geïnstalleerd worden door %s?
+ThemeInstallErr:Een fout ontstond tijdens het installeren van het opgehaalde thema.
+ThemeApplyErr:Een fout ontstond tijdens het toevoegen van het opgehaalde thema.
+More:Meer
+HelpToolbarBack:Vorige\nLMB: Springt naar de vorige pagina in de venstergeschiedenis\nRMB: Toon menu met de venstergeschiedenis
+HelpToolbarForward:Volgende\nLMB: Springt naar de volgende pagina in de venstergeschiedenis
+HelpToolbarStop:Stop\nLMB: Stopt het laden van de pagina
+HelpToolbarReload:Herlaad\nLMB: Herlaad de pagina\nShift+LMB: Herlaad de pagina inclusief alle objecten
+HelpToolbarHome:Startpagina\nLMB: Opent de ingestelde startpagina
+HelpToolbarURL:Webadresbalk\nVoor een webadres in en druk op Enter\nSuggesties kunnen worden geselecteerd via cursor-omhoog/omlaag
+HelpToolbarWebSearch:Web-zoekbalk\nVoer de tekst in en druk op Enter om te zoeken met behulp van de standaard ingestelde zoekmachine
+HelpToolbarAddTab:Tabblad toevoegen\nLMB: Een nieuwe leeg tabblad wordt geopend
+HelpToolbarHotlistStar:Add the current page to the hotlist
+HelpToolbarHotlistStarLit:Remove the current page from the hotlist
+HelpPrefsFontBitmap:Use bitmap fonts engine.\nWhen deselected, the outline font engine will be used (recommended on fast machines).\nToggling this will reset the fonts to defaults.
+PageInfo:Page info
+PageInfoInsecure:Insecure
+PageInfoLocal:Local
+PageInfoSecure:Secure
+PageInfoWarning:Warning
+PageInfoInternal:Internal
+con_cache:Buffer
+con_connect:Verbinding
+con_content:Browsen
+con_fonts:Lettertypen
+con_home:Startpagina
+con_image:Afbeeldingen
+con_inter:Interface
+con_lang:Taal
+con_memory:Geheugen
+con_search:Zoeken
+con_secure:Veiligheid
+con_theme:Thema's
+con_general:Algemeen
+con_rendering:Weergave
+con_advanced:Geavanceerd
+Preferences:Voorkeuren
+Use:Gebruik
+HomePageURL:Adres
+HomePageDefault:Gebruik standaardpagina
+HomePageCurrent:Gebruik deze pagina
+HomePageBlank:Gebruik een lege pagina
+ContentBlocking:Inhoud blokkeren
+BlockAds:Verberg advertenties
+ContentLanguage:Taal webpagina's
+LocaleLang:Gebruik computerspecificatie
+HistoryAge:Bewaar geschiedenis voor
+Days:dagen
+Scripting:Scripts
+EnableJS:JavaScript ingeschakeld
+Miscellaneous:Overig
+Privacy:Privacy
+SendReferer:Zend websitereferentie
+DoNotTrack:Websites laten weten dat gebruiker niet gevolgd wil worden
+FastScrolling:Snelschuiven
+Screen:Scherm
+ScreenOwn:Eigen scherm
+ScreenWB:Workbench-scherm
+ScreenPublic:Openbaar scherm
+SimpleRefresh:Eenvoudig verversen
+Theme:Thema
+ThemeGUI:GUI theme
+ThemePage:Preferred page theme
+Light:Light
+Dark:Dark
+MousePointers:Muisaanwijzers
+TrueColour:Ware kleuren
+OSPointers:Gebruik bij voorkeur besturingssysteem-muisaanwijzers
+NeedRestart:Deze opties worden pas actief nadat Nami opieuw is gestart
+Proxy:HTTP-proxy
+ProxyBypass:Proxy omleiden voor
+Fetching:ophalen
+FetchesMax:Maximaal aantal keer ophalen
+FetchesHost:Fetches per host
+FetchesCached:Gebufferde verbindingen
+CacheNative:Buffer oorspronkelijke versies
+ScaleQuality:Hogere schaalkwaliteit
+DitherQuality:Kwaliteit kleurbenadering
+Low:Laag
+Medium:Gemiddeld
+High:Hoog
+Animations:Animaties
+AnimSpeedLimit:Beperk snelheid tot
+AnimSpeedFrames:seconden per beeld
+AnimDisable:Schakel animaties uit
+None:Geen
+Scaled:Geschaald
+Resolution:Resolutie
+ResolutionY:Verticale resolutie
+ResolutionX:Horizontale resolutie
+DPI:DPI
+EnableCSS:CSS ingeschakeld
+DefaultScale:Standaard paginaschaal
+FontFamilies:Lettertypesoort
+FontSans:Sans-serif
+FontSerif:Serif
+FontMono:Monospaced
+FontCursive:Cursief
+FontFantasy:Fantasie
+FontFallback:Favoriete reserve lettertype
+Default:Standaard
+FontSize:Lettertypegrootte
+Minimum:Minimum
+Pt:pt
+FontAntialiasing:Anti-aliasing (indien mogelijk) gebruiken
+FontEngine:Font engine
+FontEngineDiskfont:Bitmap (Diskfont)
+FontEngineBullet:Outline (BulletAPI) [Recommended]
+FontScanning:Scannen lettertypen...
+FontGlyphs:%ld unieke tekens gevonden
+CacheMemory:Buffergeheugen
+CacheDisc:Schijfbuffer
+Size:Grootte
+Duration:Tijdsduur
+Tabs:Tabbladen
+TabLinkOpen:Open links in tabs instead of new windows
+TabSwitchNew:When a new tab is opened immediately switch to it
+TabbedBrowsing:Browsen met tabbladen
+TabActive:Open nieuwe tabbladen in de achtergrond
+TabMiddle:Middelste muisknop opent een nieuw tabblad
+TabLast:Open nieuw tabblad na alle bestaande tabbladen
+TabClose:Waarschuwen wanneer meerdere tabbladen tegelijkertijd worden gesloten
+TabAlways:Tabbladen altijd tonen
+Downloads:Opgehaalde items
+ConfirmOverwrite:Vraag bevestiging bij overschrijven
+DownloadDir:Initiële ophaallocatie
+DownloadNotify:Melding wanneer ophalenproces gereed is
+SearchWeb:Zoek op web
+SearchURL:Zoek via (web)adresveld
+SearchProvider:Zoekmachine
+OptionDocky:Toon in AmiDock
+PopupMenu:Gebruik popup-menu for formulieren
+Clipboard:Klembord
+ClipboardUTF8:Schrijf tekst in UTF8-formaat
+ContextMenu:Contextmenu
+Enable:Ingschakeld
+Sticky:Vensterkleven
+Behaviour:Gedrag
+OptionNoWindow:Geen venster openen na starten programma
+OptionNoQuit:Stop programma niet als laatste venster worden gesloten
+Margins:Marges
+Top:Top
+Left:Links
+Right:Rechts
+Bottom:Onder
+MM:mm
+Scaling:Schaling
+Scale:Schaal
+Appearance:Verschijning
+SuppressImages:Onderdruk afbeeldingen
+RemoveBackground:Verwijder achtergrond
+FitPage:Maak pagina passend
+CompressPDF:Comprimeer PDF
+SetPassword:Stel wachtwoord in

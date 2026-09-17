@@ -164,14 +164,48 @@ struct ami_font_cache_node *ami_font_cache_alloc_entry(const char *font)
 #ifdef __amigaos4__
 	uint32 hash = XXH32(font, strlen(font), 0);
 	nodedata = (struct ami_font_cache_node *)InsertSkipNode(ami_font_cache_list, (APTR)hash, sizeof(struct ami_font_cache_node));
+	if(nodedata == NULL)
+		return NULL;
+	/* SkipNode already initialised — only clear payload fields below */
+	nodedata->font = NULL;
+	nodedata->bold = NULL;
+	nodedata->italic = NULL;
+	nodedata->bolditalic = NULL;
 #else
 	nodedata = malloc(sizeof(struct ami_font_cache_node));
+	if(nodedata == NULL)
+		return NULL;
+	memset(nodedata, 0, sizeof(*nodedata));
 #endif
-
 	GetSysTime(&nodedata->lastused);
 
 	return nodedata;
 }
+
+#ifndef __amigaos4__
+struct ami_font_cache_node *ami_font_cache_find_ofont(struct OutlineFont *ofont)
+{
+	struct nsObject *node;
+	struct ami_font_cache_node *nodedata;
+
+	if(ofont == NULL || ami_font_cache_list == NULL)
+		return NULL;
+
+	if(IsMinListEmpty(ami_font_cache_list))
+		return NULL;
+
+	node = (struct nsObject *)GetHead((struct List *)ami_font_cache_list);
+	while(node != NULL) {
+		nodedata = node->objstruct;
+		if(nodedata != NULL && nodedata->font == ofont) {
+			GetSysTime(&nodedata->lastused);
+			return nodedata;
+		}
+		node = (struct nsObject *)GetSucc((struct Node *)node);
+	}
+	return NULL;
+}
+#endif
 
 void ami_font_cache_insert(struct ami_font_cache_node *nodedata, const char *font)
 {

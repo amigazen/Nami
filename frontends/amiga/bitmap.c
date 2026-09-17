@@ -35,6 +35,7 @@
 #include <proto/utility.h>
 #include <graphics/view.h>
 #include <graphics/gfxmacros.h>
+#include <graphics/scale.h>
 
 #ifndef PDTA_ScaleQuality
 #define PDTA_ScaleQuality	TAG_IGNORE
@@ -291,14 +292,24 @@ void amiga_bitmap_destroy(void *bitmap)
 
 	if(bm)
 	{
-		if((bm->nativebm)) { // && (bm->native == AMI_NSBM_TRUECOLOUR)) {
+		/* Dispose DT before FreeBitMap — picture.datatype owns Remap
+		 * planes; free our AllocBitMap copy only after DT is gone. */
+		if(bm->dto != NULL) {
+			DisposeDTObject(bm->dto);
+			bm->dto = NULL;
+		}
+
+		if(bm->nativebm) {
 			ami_rtg_freebitmap(bm->nativebm);
+			bm->nativebm = NULL;
 		}
 
 		if(bm->native_mask) {
 			/* FreeRaster width must be the AllocRaster width (BMA_WIDTH),
 			 * not the logical pixel width — mismatch corrupts Exec's MemList. */
 			FreeRaster(bm->native_mask, bm->native_mask_width, bm->height);
+			bm->native_mask = NULL;
+			bm->native_mask_width = 0;
 		}
 
 #ifdef __amigaos4__
@@ -309,10 +320,6 @@ void amiga_bitmap_destroy(void *bitmap)
 			bm->pensharemap = NULL;
 		}
 #endif
-		if(bm->dto != NULL) {
-			DisposeDTObject(bm->dto);
-			bm->dto = NULL;
-		}
 
 #ifdef __amigaos4__
 		if(nsoption_bool(use_extmem) == true) {
@@ -330,9 +337,6 @@ void amiga_bitmap_destroy(void *bitmap)
 		if(bm->title) free(bm->title);
 
 		bm->pixdata = NULL;
-		bm->nativebm = NULL;
-		bm->native_mask = NULL;
-		bm->native_mask_width = 0;
 		bm->url = NULL;
 		bm->title = NULL;
 
@@ -377,6 +381,11 @@ void amiga_bitmap_modified(void *bitmap)
 		ami_schedule(500, amiga_bitmap_unmap_buffer, bm);
 #endif
 
+	/* DT first, then our AllocBitMap copy */
+	if(bm->dto != NULL) {
+		DisposeDTObject(bm->dto);
+		bm->dto = NULL;
+	}
 	if(bm->nativebm) ami_rtg_freebitmap(bm->nativebm);
 	if(bm->native_mask) {
 		FreeRaster(bm->native_mask, bm->native_mask_width, bm->height);
@@ -391,10 +400,6 @@ void amiga_bitmap_modified(void *bitmap)
 		bm->pensharemap = NULL;
 	}
 #endif
-	if(bm->dto != NULL) {
-		DisposeDTObject(bm->dto);
-		bm->dto = NULL;
-	}
 	bm->nativebm = NULL;
 	bm->native_mask = NULL;
 	bm->native_mask_width = 0;
@@ -769,6 +774,13 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 		bitmap->nativebm = NULL;
 		bitmap->native = AMI_NSBM_NONE;
 	}
+	if (bitmap->native_mask != NULL) {
+		/* Must free with the AllocRaster width; stale masks MemList-corrupt. */
+		FreeRaster(bitmap->native_mask, bitmap->native_mask_width,
+				bitmap->height);
+		bitmap->native_mask = NULL;
+		bitmap->native_mask_width = 0;
+	}
 
 	if ((!bitmap->opaque) && (bg != NS_TRANSPARENT)) {
 		/* Bake page background into Remap colours — opaque blit later. */
@@ -834,7 +846,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 		if (npix > 0) {
 			mid = px[(npix / 2UL)];
 		}
-		NSLOG(netsurf, INFO,
+		NSLOG(netsurf, DEBUG,
 		      "ami_bitmap_get_picturedt: soft mid=0x%08lx opaque=%d",
 		      (unsigned long)mid,
 		      bitmap->opaque ? 1 : 0);
@@ -847,7 +859,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 		ditherq = 2;
 	}
 
-	NSLOG(netsurf, INFO,
+	NSLOG(netsurf, DEBUG,
 	      "ami_bitmap_get_picturedt: NewDTObject %lux%lu -> %dx%d",
 	      (unsigned long)sw, (unsigned long)sh, width, height);
 
@@ -860,7 +872,10 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 			DTA_GroupID, GID_PICTURE,
 			PDTA_DestMode, PMODE_V42,
 			PDTA_Remap, TRUE,
-			PDTA_FreeSourceBitMap, TRUE,
+			/* WRITEPIXELARRAY copies into DT-owned planes; do not
+			 * FreeSourceBitMap or DisposeDTObject can FreeMem our
+			 * blend buffer / wrong pointer (MemList corrupt). */
+			PDTA_FreeSourceBitMap, FALSE,
 			PDTA_UseFriendBitMap, FALSE,
 			OBP_Precision, PRECISION_IMAGE,
 			PDTA_ScaleQuality,
@@ -890,7 +905,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 			PDTA_SourceMode, PMODE_V43,
 			TAG_DONE);
 
-	NSLOG(netsurf, INFO,
+	NSLOG(netsurf, DEBUG,
 	      "ami_bitmap_get_picturedt: WRITEPIXELARRAY");
 	ok = IDoMethod(dto, PDTM_WRITEPIXELARRAY, src,
 			PBPAFMT_ARGB, stride, 0, 0, sw, sh);
@@ -903,7 +918,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 	}
 
 	if ((ULONG)width != sw || (ULONG)height != sh) {
-		NSLOG(netsurf, INFO,
+		NSLOG(netsurf, DEBUG,
 		      "ami_bitmap_get_picturedt: PDTM_SCALE %dx%d",
 		      width, height);
 		ok = IDoMethod(dto, PDTM_SCALE, (ULONG)width, (ULONG)height, 0);
@@ -922,7 +937,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 			PDTA_DitherQuality, ditherq,
 			TAG_DONE);
 
-	NSLOG(netsurf, INFO,
+	NSLOG(netsurf, DEBUG,
 	      "ami_bitmap_get_picturedt: PROCLAYOUT Remap");
 	ok = DoMethod(dto, DTM_PROCLAYOUT, NULL, 1);
 	if (ok == 0) {
@@ -975,7 +990,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 		InitRastPort(&trp);
 		trp.BitMap = owned;
 		sample = ReadPixel(&trp, width / 2, height / 2);
-		NSLOG(netsurf, INFO,
+		NSLOG(netsurf, DEBUG,
 		      "ami_bitmap_get_picturedt: ok %ldx%ld -> %dx%d depth=%lu "
 		      "sample=%ld",
 		      (long)sw, (long)sh, width, height, (unsigned long)depth,
@@ -985,21 +1000,10 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 	free(blend);
 
 	/*
-	 * History/tab thumbnails ask for tiny plot sizes (16→2, 64→10).
-	 * Pinning that native BitMap forces Remap churn and can leave a
-	 * wrong-depth cache when the soft buffer is later drawn full-size.
-	 * Bake pixels into owned and drop the DT object; caller frees BitMap.
+	 * Always pin Remap at the size we just built. Callers that need a
+	 * different size BitScale from this cache (see ami_bitmap_get_generic);
+	 * do not Remap again at thumbnail sizes.
 	 */
-	if (((ULONG)width * (ULONG)height * 8UL) <
-	    ((ULONG)bitmap->width * (ULONG)bitmap->height)) {
-		DisposeDTObject(dto);
-		NSLOG(netsurf, INFO,
-		      "ami_bitmap_get_picturedt: ephemeral %dx%d "
-		      "(intrinsic %ldx%ld)",
-		      width, height, (long)bitmap->width, (long)bitmap->height);
-		return owned;
-	}
-
 	bitmap->dto = dto;
 	bitmap->nativebm = owned;
 	bitmap->nativebmwidth = width;
@@ -1212,11 +1216,65 @@ static inline struct BitMap *ami_bitmap_get_guigfx(struct bitmap *bitmap,
 
 #endif /* __amigaos4__ */
 
+#ifndef __amigaos4__
+/**
+ * BitMapScale from a cached Remap BitMap. Result is ephemeral (caller frees
+ * unless ami_bitmap_is_nativebm says it is the pinned nativebm).
+ */
+static struct BitMap *ami_bitmap_scale_native(struct BitMap *src,
+		int srcw, int srch, int dstw, int dsth,
+		struct BitMap *restrict friendbm)
+{
+	struct BitMap *dst;
+	struct BitScaleArgs bsa;
+	ULONG depth;
+
+	if(src == NULL || srcw < 1 || srch < 1 || dstw < 1 || dsth < 1)
+		return NULL;
+
+	depth = GetBitMapAttr(src, BMA_DEPTH);
+	dst = AllocBitMap((ULONG)dstw, (ULONG)dsth, depth,
+			BMF_CLEAR | BMF_STANDARD,
+			friendbm != NULL ? friendbm : src);
+	if(dst == NULL) {
+		dst = AllocBitMap((ULONG)dstw, (ULONG)dsth, depth,
+				BMF_CLEAR, src);
+	}
+	if(dst == NULL)
+		return NULL;
+
+	memset(&bsa, 0, sizeof(bsa));
+	bsa.bsa_SrcX = 0;
+	bsa.bsa_SrcY = 0;
+	bsa.bsa_SrcWidth = (UWORD)srcw;
+	bsa.bsa_SrcHeight = (UWORD)srch;
+	bsa.bsa_DestX = 0;
+	bsa.bsa_DestY = 0;
+	bsa.bsa_XSrcFactor = (UWORD)srcw;
+	bsa.bsa_XDestFactor = (UWORD)dstw;
+	bsa.bsa_YSrcFactor = (UWORD)srch;
+	bsa.bsa_YDestFactor = (UWORD)dsth;
+	bsa.bsa_SrcBitMap = src;
+	bsa.bsa_DestBitMap = dst;
+	bsa.bsa_Flags = 0;
+	BitMapScale(&bsa);
+
+	NSLOG(netsurf, DEBUG,
+	      "ami_bitmap_scale_native: %dx%d -> %dx%d",
+	      srcw, srch, dstw, dsth);
+	return dst;
+}
+#endif
+
 static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 			int width, int height, struct BitMap *restrict friendbm, int type, colour bg)
 {
 	struct BitMap *restrict tbm = NULL;
 	struct Screen *scrn = ami_gui_get_screen();
+
+#ifndef __amigaos4__
+	(void)scrn;
+#endif
 
 	if(bitmap->nativebm)
 	{
@@ -1231,7 +1289,7 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 			tbm = bitmap->nativebm;
 			return tbm;
 		} else if((bitmap->nativebmwidth == bitmap->width) &&
-				(bitmap->nativebmheight == bitmap->height) && nativebmalphablend) { // >= width/height ?
+				(bitmap->nativebmheight == bitmap->height) && nativebmalphablend) {
 			tbm = bitmap->nativebm;
 		} else {
 			if(bitmap->nativebm) amiga_bitmap_modified(bitmap);
@@ -1240,9 +1298,14 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 
 	if(tbm == NULL) {
 #ifndef __amigaos4__
-		/* OS3: picture.datatype Remap + Screen (no guigfx) */
-		return ami_bitmap_get_picturedt(bitmap, width, height,
+		/*
+		 * Remap at the blit size (not always intrinsic). 2× assets
+		 * displayed at half size were Remapping full-res then
+		 * BitScale — Remap once at width×height instead.
+		 */
+		tbm = ami_bitmap_get_picturedt(bitmap, width, height,
 				friendbm, type, bg);
+		return tbm;
 #else
 		if(type == AMI_NSBM_PALETTEMAPPED)
 			return ami_bitmap_get_guigfx(bitmap, width, height, friendbm, type, bg);
@@ -1270,13 +1333,13 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 	}
 
 #ifndef __amigaos4__
-	/* Cached at a different size — rebuild via picture.datatype */
-	if ((bitmap->nativebmwidth != width) ||
-	    (bitmap->nativebmheight != height)) {
-		return ami_bitmap_get_picturedt(bitmap, width, height,
-				friendbm, type, bg);
+	/* Cached full-size Remap — BitScale for other plot sizes */
+	if ((bitmap->nativebmwidth == width) &&
+	    (bitmap->nativebmheight == height)) {
+		return tbm;
 	}
-	return tbm;
+	return ami_bitmap_scale_native(tbm, bitmap->nativebmwidth,
+			bitmap->nativebmheight, width, height, friendbm);
 #else
 	if((bitmap->width != width) || (bitmap->height != height)) {
 		if((bitmap->nativebmwidth == width) && (bitmap->nativebmheight == height))
@@ -1446,6 +1509,20 @@ static nserror bitmap_render(struct bitmap *bitmap, struct hlcache_handle *conte
 {
 	NSLOG(netsurf, INFO, "Entering bitmap_render");
 
+#ifndef __amigaos4__
+	/*
+	 * History thumbnails call this during page load and force a full
+	 * off-screen replot (every image Remap/BitScale, all text). On OS3
+	 * that raced the on-screen paint and redrew the same hero/band
+	 * several times. Leave a blank opaque thumb; local history still
+	 * works without the snapshot.
+	 */
+	(void)content;
+	amiga_bitmap_set_opaque(bitmap, true);
+	NSLOG(netsurf, INFO,
+	      "bitmap_render: skipped history thumb on OS3");
+	return NSERROR_OK;
+#else
 	int plot_width;
 	int plot_height;
 	struct gui_globals *bm_globals;
@@ -1480,6 +1557,7 @@ static nserror bitmap_render(struct bitmap *bitmap, struct hlcache_handle *conte
 	amiga_bitmap_set_opaque(bitmap, true);
 
 	return NSERROR_OK;
+#endif
 }
 
 void ami_bitmap_set_url(struct bitmap *bm, struct nsurl *url)

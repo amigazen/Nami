@@ -25,6 +25,7 @@
 
 extern struct gui_file_table *amiga_file_table;
 struct Window;
+struct nsurl;
 
 /** Image style for ami_misc_requester (maps to REQIMAGE_* / TDRIMAGE_*). */
 enum {
@@ -42,7 +43,7 @@ enum {
  * @param win reference window (may be NULL; then screen is used)
  * @param title window title (system charset)
  * @param body body text (system charset)
- * @param gadgets gadget labels "OK|Cancel" style (system charset)
+ * @param gadgets gadget labels "Ok|Cancel" style (system charset)
  * @param image AMI_REQ_IMAGE_*
  * @return selected button number
  */
@@ -71,5 +72,13 @@ char *translate_escape_chars(const char *s);
 void ami_misc_fatal_error(const char *message);
 int32 amiga_warn_user_multi(const char *body,
 	const char *opt1, const char *opt2, struct Window *win);
+
+/**
+ * Convert a user-supplied address string to nsurl.
+ * Handles http(s) URLs and Amiga Vol:path / relative files without
+ * mistaking volume names for URI schemes.
+ */
+nserror ami_string_to_nsurl(const char *s, struct nsurl **url_out);
+
 #endif
 

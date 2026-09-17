@@ -26,4 +26,4 @@ if open('smtube','APPDIR:SMTube','R') then do
   address COMMAND 'APPDIR:SMTube' result
 end
 else
-  address command 'requestchoice >NIL: "NetSurf" "SMTube must be installed for this script to function.*n*nIt can be downloaded from OS4Depot:video/play/smtube" "OK"'
+  address command 'requestchoice >NIL: "NetSurf" "SMTube must be installed for this script to function.*n*nIt can be downloaded from OS4Depot:video/play/smtube" "Ok"'
