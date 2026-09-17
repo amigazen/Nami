@@ -216,7 +216,7 @@ NSOPTION_INTEGER(max_cached_fetch_handles, 6)
 NSOPTION_UINT(max_retried_fetches, 1)
 
 /** Number of seconds to allow for a DNS-resolution+connect() before timing out
- * the cURL socket.
+ * the cURL socket / AmiHTTP session (connect + read). Cap is 30 in nsoption.
  */
 NSOPTION_UINT(curl_fetch_timeout, 30)
 

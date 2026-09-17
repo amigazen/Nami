@@ -14,6 +14,6 @@ Amazon|www.amazon.com|https://www.amazon.com/s/ref=nb_ss_gw?field-keywords=%s|ht
 Ebay|www.ebay.com|https://www.ebay.com/sch/i.html?_nkw=%s|https://www.ebay.com/favicon.ico|
 IMDB|www.imdb.com|https://www.imdb.com/find?q=%s|https://www.imdb.com/favicon.ico|
 Stract|stract.com|https://stract.com/search?q=%s|https://stract.com/favicon.ico|
-Google|www.google.com|https://www.google.com/search?q=%s|https://www.google.com/favicon.ico|
+Google|www.google.com|https://www.google.com/search?q=%s&hl=en&gbv=1|https://www.google.com/favicon.ico|comment:gbv=1 requests the HTML-only results UI (usable without JS)
 Ecosia|www.ecosia.org|https://www.ecosia.org/search?q=%s|https://www.ecosia.org/favicon.ico|
 Qwant|www.qwant.com|https://www.qwant.com/?t=web&q=%s|https://www.qwant.com/favicon.ico|

@@ -145,7 +145,11 @@ char *ASPrintf(const char *fmt, ...)
   va_end(ap);
 
 	r = strlen(buffer);
-	rbuf = AllocVec(r+1, MEMF_CLEAR);
+	/* Prefer Fast — ASPrintf strings are not graphics buffers */
+	rbuf = AllocVec(r+1, MEMF_PUBLIC | MEMF_FAST | MEMF_CLEAR);
+	if (rbuf == NULL) {
+		rbuf = AllocVec(r+1, MEMF_PUBLIC | MEMF_CLEAR);
+	}
 	if (rbuf != NULL)
 	{
 		strncpy(rbuf, buffer, r);
@@ -176,20 +180,6 @@ char *strsep(char **s1, const char *s2)
 		}
 	}
 	return p1;
-}
-
-int alphasort(const struct dirent **d1, const struct dirent **d2)
-{
-	/*\todo stub function, needs writing, preferably into clib2 */
-	return 0;
-}
-
-int scandir(const char *dir, struct dirent ***namelist,
-  int (*filter)(const struct dirent *),
-  int (*compar)(const struct dirent **, const struct dirent **))
-{
-	/*\todo stub function, needs writing, preferably into clib2 */
-	return 0;
 }
 
 long long int strtoll(const char *nptr, char **endptr, int base)

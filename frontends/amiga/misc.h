@@ -26,6 +26,38 @@
 extern struct gui_file_table *amiga_file_table;
 struct Window;
 
+/** Image style for ami_misc_requester (maps to REQIMAGE_* / TDRIMAGE_*). */
+enum {
+	AMI_REQ_IMAGE_INFO = 0,
+	AMI_REQ_IMAGE_WARNING,
+	AMI_REQ_IMAGE_ERROR,
+	AMI_REQ_IMAGE_QUESTION
+};
+
+/**
+ * Modal info/query requester.
+ * Prefer requester.class when open; else TimedDosRequester (OS4) or
+ * EasyRequest (OS3). Button numbering matches EasyRequest (1..n-1, 0=last).
+ *
+ * @param win reference window (may be NULL; then screen is used)
+ * @param title window title (system charset)
+ * @param body body text (system charset)
+ * @param gadgets gadget labels "OK|Cancel" style (system charset)
+ * @param image AMI_REQ_IMAGE_*
+ * @return selected button number
+ */
+LONG ami_misc_requester(struct Window *win,
+		const char *title, const char *body, const char *gadgets,
+		ULONG image);
+
+/**
+ * Like ami_misc_requester with optional timeout (OS4 requester.class /
+ * TimedDosRequester). timeout_secs 0 means no timeout. Returns -1 on timeout.
+ */
+LONG ami_misc_requester_ex(struct Window *win,
+		const char *title, const char *body, const char *gadgets,
+		ULONG image, LONG timeout_secs, BOOL inactive);
+
 /**
  * Warn the user of an event.
  *

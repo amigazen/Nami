@@ -7,12 +7,11 @@
 #endif
 
 /*
- * Mozilla-compatible UA reflecting NetSurf's HTML/CSS level (roughly
- * Firefox ESR basics, no modern JS). Google and others reject bare
- * "NetSurf/x.y" as an obsolete browser.
+ * Keep this out of vc-cflags.rsp if the string gains ':' (Amiga volume syntax).
+ * Do not claim a modern Firefox version — Google then serves a JS-only SPA.
  */
 #ifndef NETSURF_UA_FORMAT_STRING
-#define NETSURF_UA_FORMAT_STRING "Mozilla/5.0 (%s; rv:115.0) Gecko/20100101 Firefox/115.0 NetSurf/%d.%d"
+#define NETSURF_UA_FORMAT_STRING "Mozilla/5.0 (%s) Nami/%d.%d"
 #endif
 
 /* Logging filters — also mirrored in vc-cflags.rsp for non-VMakefile builds */

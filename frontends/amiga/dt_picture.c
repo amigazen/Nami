@@ -42,11 +42,22 @@
 #ifndef PDTA_ScaleQuality
 #define PDTA_ScaleQuality	TAG_IGNORE
 #endif
+/* Real V47 tags — never TAG_IGNORE (that silently disables transparency). */
 #ifndef PDTA_AlphaChannel
-#define PDTA_AlphaChannel	TAG_IGNORE
+#define PDTA_AlphaChannel	(DTA_Dummy + 256)
 #endif
 #ifndef PDTA_MaskPlane
-#define PDTA_MaskPlane		TAG_IGNORE
+#define PDTA_MaskPlane		(DTA_Dummy + 258)
+#endif
+#ifndef PDTM_SCALE
+#define PDTM_SCALE		(PDTM_Dummy + 2)
+#endif
+#ifndef mskNone
+#define mskNone			0
+#define mskHasMask		1
+#define mskHasTransparentColor	2
+#define mskLasso		3
+#define mskHasAlpha		4
 #endif
 
 #include "utils/log.h"
@@ -66,6 +77,7 @@
 #include "amiga/filetype.h"
 #include "amiga/datatypes.h"
 #include "amiga/gui.h"
+#include "amiga/memory.h"
 #include "amiga/rtg.h"
 
 /* Optional; pixel path must work when this stays NULL (classic OS3). */
@@ -138,9 +150,11 @@ nserror amiga_dt_picture_init(void)
 		"image/pjpeg",
 		"image/bmp",
 		"image/x-ms-bmp",
-		"image/x-icon",
-		"image/vnd.microsoft.icon",
+		/* Windows .ico is handled by frontends/amiga/ico.c (baked-in). */
 		"image/webp",
+		/* SVG via svg.datatype when installed; NewDTObject fails softly. */
+		"image/svg+xml",
+		"image/svg",
 		NULL
 	};
 
@@ -212,7 +226,7 @@ static nserror amiga_dt_picture_create(const content_handler *handler,
 
 /**
  * Guess a file extension from image magic bytes so datatype selection
- * uses extension + DTST_FILE.
+ * uses extension + DTST_FILE, not drawing.datatype via DTST_MEMORY.
  */
 static const char *amiga_dt_picture_ext(const uint8_t *data, size_t size)
 {
@@ -229,11 +243,101 @@ static const char *amiga_dt_picture_ext(const uint8_t *data, size_t size)
 	if (size >= 2 && data[0] == 'B' && data[1] == 'M') {
 		return "bmp";
 	}
-	if (size >= 4 && data[0] == 0x00 && data[1] == 0x00 &&
-	    data[2] == 0x01 && data[3] == 0x00) {
-		return "ico";
+	/* .ico spills fail with IoErr 212 — baked-in amiga_ico handles ICO. */
+	if (size >= 5 && data[0] == '<' &&
+	    (data[1] == 's' || data[1] == 'S') &&
+	    (data[2] == 'v' || data[2] == 'V') &&
+	    (data[3] == 'g' || data[3] == 'G')) {
+		return "svg";
+	}
+	if (size >= 5 && data[0] == '<' && data[1] == '?' &&
+	    (data[2] == 'x' || data[2] == 'X')) {
+		/* <?xml ...> — likely SVG; svg.datatype sniffs content. */
+		return "svg";
 	}
 	return "pic";
+}
+
+/**
+ * True when PNG IHDR is RGB/grey with no alpha and no tRNS chunk.
+ * picture.datatype READPIXELARRAY often returns black as ARGB 0x00000000 on
+ * these (amiga.com interlaced RGB PNGs) — that must not become transparency.
+ */
+static BOOL amiga_dt_picture_png_is_opaque_rgb(const uint8_t *data, size_t size)
+{
+	size_t pos;
+	ULONG len;
+	ULONG ctype;
+	UBYTE colour;
+	BOOL seen_ihdr;
+	BOOL has_trns;
+
+	if (size < 24 || data[0] != 0x89 || data[1] != 'P' ||
+	    data[2] != 'N' || data[3] != 'G') {
+		return FALSE;
+	}
+
+	pos = 8;
+	colour = 0xff;
+	seen_ihdr = FALSE;
+	has_trns = FALSE;
+
+	while (pos + 12 <= size) {
+		len = ((ULONG)data[pos] << 24) | ((ULONG)data[pos + 1] << 16) |
+			((ULONG)data[pos + 2] << 8) | (ULONG)data[pos + 3];
+		pos += 4;
+		if (pos + 4 > size) {
+			break;
+		}
+		ctype = ((ULONG)data[pos] << 24) | ((ULONG)data[pos + 1] << 16) |
+			((ULONG)data[pos + 2] << 8) | (ULONG)data[pos + 3];
+		pos += 4;
+		if (pos + len + 4 > size) {
+			break;
+		}
+
+		if (ctype == 0x49484452UL) { /* IHDR */
+			if (len >= 13) {
+				colour = data[pos + 9];
+				seen_ihdr = TRUE;
+			}
+		} else if (ctype == 0x74524e53UL) { /* tRNS */
+			has_trns = TRUE;
+		} else if (ctype == 0x49454e44UL) { /* IEND */
+			break;
+		}
+
+		pos += len + 4; /* data + CRC */
+	}
+
+	if (seen_ihdr == FALSE || has_trns != FALSE) {
+		return FALSE;
+	}
+	/* 0 grey, 2 RGB — no alpha. 3 indexed may use tRNS (already excluded). */
+	if (colour == 0 || colour == 2) {
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/**
+ * Force every soft pixel fully opaque (fixes DT a=0 on black RGB).
+ */
+static void amiga_dt_picture_force_opaque_buffer(struct bitmap *bitmap)
+{
+	ULONG *px;
+	ULONG npix;
+	ULONG i;
+
+	px = (ULONG *)amiga_bitmap_get_buffer(bitmap);
+	if (px == NULL) {
+		return;
+	}
+	npix = (ULONG)bitmap_get_width(bitmap) * (ULONG)bitmap_get_height(bitmap);
+	for (i = 0; i < npix; i++) {
+		px[i] |= 0xff000000UL;
+	}
+	amiga_bitmap_set_opaque(bitmap, true);
 }
 
 /* Keyed spill directory under T: for this NetSurf process (not RAM:). */
@@ -273,9 +377,11 @@ static BOOL amiga_dt_picture_ensure_spill_dir(void)
 }
 
 /**
- * Soft-ARGB path needs the unremapped source bitmap + PDTA_CRegs.
- * Remapping TRUE for direct screen blit would bake screen pens into
- * the buffer and double-remap through guigfx.
+ * Soft-ARGB decode: do NOT attach PDTA_Screen here.
+ * With a Screen, picture.datatype builds a threshold MaskPlane / alpha even
+ * for opaque PNGs; READPIXELARRAY then looks like real transparency and we
+ * punch holes where none exist. Remap against the screen happens later in
+ * ami_bitmap_get_picturedt.
  */
 static Object *amiga_dt_picture_open_file(const char *filename,
 		struct Screen *screen)
@@ -301,6 +407,7 @@ static Object *amiga_dt_picture_open_file(const char *filename,
 				DTA_SourceType, DTST_FILE,
 				DTA_GroupID, GID_PICTURE,
 				PDTA_Remap, FALSE,
+				PDTA_DestMode, PMODE_V43,
 				TAG_DONE);
 	}
 
@@ -376,11 +483,19 @@ static BOOL amiga_dt_picture_planar_to_argb(Object *dto, struct BitMap *bm,
 	UBYTE bit;
 	UBYTE *plane;
 	PLANEPTR *planes;
+	struct BitMapHeader *bmh;
+	UBYTE masking;
+	UWORD transp_pen;
+	BOOL use_transp_pen;
 
 	cregs = NULL;
 	numcols = 0;
 	mask = NULL;
 	mask_bpr = 0;
+	bmh = NULL;
+	masking = mskNone;
+	transp_pen = 0;
+	use_transp_pen = FALSE;
 
 	bm_w = GetBitMapAttr(bm, BMA_WIDTH);
 	bm_h = GetBitMapAttr(bm, BMA_HEIGHT);
@@ -406,6 +521,7 @@ static BOOL amiga_dt_picture_planar_to_argb(Object *dto, struct BitMap *bm,
 			PDTA_CRegs, &cregs,
 			PDTA_NumColors, &numcols,
 			PDTA_MaskPlane, &mask,
+			PDTA_BitMapHeader, &bmh,
 			TAG_DONE);
 	if (cregs == NULL) {
 		GetDTAttrs(dto, PDTA_GRegs, &cregs, TAG_DONE);
@@ -414,6 +530,27 @@ static BOOL amiga_dt_picture_planar_to_argb(Object *dto, struct BitMap *bm,
 		NSLOG(netsurf, WARNING,
 		      "amiga_dt_picture: planar BitMap but no CRegs");
 		return FALSE;
+	}
+
+	if (bmh != NULL) {
+		masking = bmh->bmh_Masking;
+		transp_pen = bmh->bmh_Transparent;
+		if (masking == mskHasTransparentColor ||
+		    masking == mskLasso) {
+			use_transp_pen = TRUE;
+		}
+	}
+
+	/*
+	 * Only honour MaskPlane when the header says the file has a mask.
+	 * A non-NULL PDTA_MaskPlane alone is often a screen-threshold artefact.
+	 */
+	if (mask != NULL &&
+	    masking != mskHasMask &&
+	    masking != mskHasTransparentColor &&
+	    masking != mskHasAlpha &&
+	    masking != mskLasso) {
+		mask = NULL;
 	}
 
 	if (mask != NULL) {
@@ -433,25 +570,11 @@ static BOOL amiga_dt_picture_planar_to_argb(Object *dto, struct BitMap *bm,
 			byte_idx = (ULONG)y * bpr + ((ULONG)x / 8UL);
 			bit = (UBYTE)(0x80U >> (x & 7));
 
-			if ((flags & BMF_INTERLEAVED) != 0) {
-				/* Interleaved: plane d at offset d * (height*mod) — use
-				 * BytesPerRow as total; fall back to ReadPixel-style via
-				 * per-plane pointers when Planes[d] are distinct.
-				 */
-				for (d = 0; d < (int)depth; d++) {
-					plane = (UBYTE *)planes[d];
-					if (plane != NULL &&
-					    (plane[byte_idx] & bit) != 0) {
-						pen |= (1UL << d);
-					}
-				}
-			} else {
-				for (d = 0; d < (int)depth; d++) {
-					plane = (UBYTE *)planes[d];
-					if (plane != NULL &&
-					    (plane[byte_idx] & bit) != 0) {
-						pen |= (1UL << d);
-					}
+			for (d = 0; d < (int)depth; d++) {
+				plane = (UBYTE *)planes[d];
+				if (plane != NULL &&
+				    (plane[byte_idx] & bit) != 0) {
+					pen |= (1UL << d);
 				}
 			}
 
@@ -472,11 +595,18 @@ static BOOL amiga_dt_picture_planar_to_argb(Object *dto, struct BitMap *bm,
 				if ((mask[byte_idx] & bit) == 0) {
 					a = 0;
 				}
+			} else if (use_transp_pen != FALSE &&
+				   pen == (ULONG)transp_pen) {
+				a = 0;
 			}
 
 			row[x] = (a << 24) | (r << 16) | (g << 8) | b;
 		}
 	}
+
+	NSLOG(netsurf, INFO,
+	      "amiga_dt_picture: planar transparency mask=%p masking=%u transp=%u",
+	      (void *)mask, (unsigned)masking, (unsigned)transp_pen);
 
 	return TRUE;
 }
@@ -721,26 +851,22 @@ static char *amiga_dt_picture_datatype(struct content *c)
 	return filetype;
 }
 
-static struct bitmap *amiga_dt_picture_cache_convert(struct content *c)
+/**
+ * Pull ARGB soft buffer from an already-laid-out picture.datatype object.
+ * Caller owns dto lifetime. On NOMEM broadcasts CONTENT_MSG_ERROR.
+ */
+static struct bitmap *amiga_dt_picture_bitmap_from_dto(struct content *c,
+		Object *dto)
 {
 	union content_msg_data msg_data;
 	UBYTE *bm_buffer;
-	Object *dto;
 	struct bitmap *bitmap;
-	struct amiga_dt_picture_content *adt = (struct amiga_dt_picture_content *)c;
-	BOOL has_alpha = FALSE;
-	ULONG got;
 	BOOL read_ok;
-
-	NSLOG(netsurf, INFO, "amiga_dt_picture_cache_convert");
-
-	dto = amiga_dt_picture_newdtobject(adt);
-	if (dto == NULL) {
-		return NULL;
-	}
+	const uint8_t *src;
+	size_t src_size;
 
 	bitmap = amiga_bitmap_create(c->width, c->height, BITMAP_NONE);
-	if (!bitmap) {
+	if (bitmap == NULL) {
 		msg_data.errordata.errorcode = NSERROR_NOMEM;
 		msg_data.errordata.errormsg = messages_get("NoMemory");
 		content_broadcast(c, CONTENT_MSG_ERROR, &msg_data);
@@ -748,7 +874,6 @@ static struct bitmap *amiga_dt_picture_cache_convert(struct content *c)
 	}
 
 	bm_buffer = amiga_bitmap_get_buffer(bitmap);
-
 	read_ok = amiga_dt_picture_read_pixels(dto, bm_buffer,
 			c->width, c->height,
 			(ULONG)amiga_bitmap_get_rowstride(bitmap));
@@ -760,34 +885,99 @@ static struct bitmap *amiga_dt_picture_cache_convert(struct content *c)
 		return NULL;
 	}
 
-	got = GetDTAttrs(dto, PDTA_AlphaChannel, &has_alpha, TAG_DONE);
-	if (got == 1) {
-		amiga_bitmap_set_opaque(bitmap, has_alpha == FALSE);
+	src = content__get_source_data(c, &src_size);
+	if (src != NULL &&
+	    amiga_dt_picture_png_is_opaque_rgb(src, src_size) != FALSE) {
+		/*
+		 * amiga.com banner/button: 8-bit RGB interlaced, no tRNS.
+		 * DT READPIXELARRAY yields black as 0x00000000; normalize
+		 * would treat that as a hole and preblend to white.
+		 */
+		amiga_dt_picture_force_opaque_buffer(bitmap);
+		NSLOG(netsurf, INFO,
+		      "amiga_dt_picture: opaque RGB PNG %dx%d — forced a=0xff",
+		      c->width, c->height);
 	} else {
-		amiga_bitmap_set_opaque(bitmap, bitmap_test_opaque(bitmap));
+		amiga_bitmap_normalize_alpha(bitmap);
 	}
 
+	return bitmap;
+}
+
+/**
+ * Scale dto to content intrinsic size when a spill reopen is full-res.
+ */
+static void amiga_dt_picture_scale_to_content(struct content *c, Object *dto)
+{
+#ifndef __amigaos4__
+	struct BitMapHeader *bmh;
+	ULONG got_bmh;
+	ULONG scale_ok;
+
+	bmh = NULL;
+	got_bmh = GetDTAttrs(dto, PDTA_BitMapHeader, &bmh, TAG_DONE);
+	if (got_bmh != 0 && bmh != NULL &&
+	    ((int)bmh->bmh_Width != c->width ||
+	     (int)bmh->bmh_Height != c->height)) {
+		NSLOG(netsurf, INFO,
+		      "amiga_dt_picture: PDTM_SCALE %dx%d -> %dx%d",
+		      (int)bmh->bmh_Width, (int)bmh->bmh_Height,
+		      c->width, c->height);
+		scale_ok = DoMethod(dto, PDTM_SCALE,
+				(ULONG)c->width, (ULONG)c->height, 0);
+		if (scale_ok == 0) {
+			NSLOG(netsurf, WARNING,
+			      "amiga_dt_picture: PDTM_SCALE failed");
+		}
+	}
+	if (ami_memory_under_pressure()) {
+		ami_memory_try_purge();
+	}
+#else
+	(void)c;
+	(void)dto;
+#endif
+}
+
+static struct bitmap *amiga_dt_picture_cache_convert(struct content *c)
+{
+	Object *dto;
+	struct bitmap *bitmap;
+	struct amiga_dt_picture_content *adt =
+			(struct amiga_dt_picture_content *)c;
+
+	NSLOG(netsurf, INFO, "amiga_dt_picture_cache_convert");
+
+	dto = amiga_dt_picture_newdtobject(adt);
+	if (dto == NULL) {
+		return NULL;
+	}
+
+	amiga_dt_picture_scale_to_content(c, dto);
+	bitmap = amiga_dt_picture_bitmap_from_dto(c, dto);
+
+	/* Drop the DT object; keep spill so a later miss can reopen without
+	 * depending on llcache still holding the source bytes. */
 	DisposeDTObject(dto);
 	adt->dto = NULL;
-	if (adt->spill != NULL) {
-		DeleteFile(adt->spill);
-		free(adt->spill);
-		adt->spill = NULL;
-	}
 
 	return bitmap;
 }
 
 static bool amiga_dt_picture_convert(struct content *c)
 {
-	int width, height;
+	int width;
+	int height;
 	char *title;
 	Object *dto;
 	struct BitMapHeader *bmh;
 	char *filetype;
 	ULONG got;
-	ULONG nom_w, nom_h;
-	struct amiga_dt_picture_content *adt = (struct amiga_dt_picture_content *)c;
+	ULONG nom_w;
+	ULONG nom_h;
+	struct bitmap *bitmap;
+	struct amiga_dt_picture_content *adt =
+			(struct amiga_dt_picture_content *)c;
 
 	NSLOG(netsurf, INFO, "amiga_dt_picture_convert");
 
@@ -825,8 +1015,32 @@ static bool amiga_dt_picture_convert(struct content *c)
 		NSLOG(netsurf, WARNING,
 		      "amiga_dt_picture_convert: no size after layout for %s",
 		      nsurl_access(llcache_handle_get_url(c->llcache)));
+		DisposeDTObject(dto);
+		adt->dto = NULL;
 		return false;
 	}
+
+#ifndef __amigaos4__
+	/*
+	 * Cap before image_cache stores intrinsic size — amigans banner
+	 * is 1920×64 (~480KB RGBA); layout on a 640-wide screen does not
+	 * need the full native buffer. Scale the DataType early so its
+	 * BitMap does not sit at full size until redraw.
+	 */
+	ami_memory_cap_image_dims(&width, &height);
+	{
+		struct BitMapHeader *bmh_cap;
+		ULONG got_bmh;
+
+		bmh_cap = NULL;
+		got_bmh = GetDTAttrs(dto, PDTA_BitMapHeader, &bmh_cap, TAG_DONE);
+		if (got_bmh != 0 && bmh_cap != NULL &&
+		    ((int)bmh_cap->bmh_Width != width ||
+		     (int)bmh_cap->bmh_Height != height)) {
+			DoMethod(dto, PDTM_SCALE, (ULONG)width, (ULONG)height, 0);
+		}
+	}
+#endif
 
 	NSLOG(netsurf, INFO,
 	      "amiga_dt_picture_convert: ok %dx%d", width, height);
@@ -834,6 +1048,16 @@ static bool amiga_dt_picture_convert(struct content *c)
 	c->width = width;
 	c->height = height;
 	c->size = (size_t)width * (size_t)height * 4;
+
+	/* Decode soft pixels now so READY/DONE means the image can paint.
+	 * Leaving only dimensions forced first paint through cache_convert
+	 * during box-build and left DT objects open for seconds on Aminet. */
+	bitmap = amiga_dt_picture_bitmap_from_dto(c, dto);
+	DisposeDTObject(dto);
+	adt->dto = NULL;
+	if (bitmap == NULL) {
+		return false;
+	}
 
 	filetype = amiga_dt_picture_datatype(c);
 	if (filetype != NULL) {
@@ -847,7 +1071,7 @@ static bool amiga_dt_picture_convert(struct content *c)
 		free(filetype);
 	}
 
-	image_cache_add(c, NULL, amiga_dt_picture_cache_convert);
+	image_cache_add(c, bitmap, amiga_dt_picture_cache_convert);
 
 	content_set_ready(c);
 	content_set_done(c);

@@ -210,6 +210,16 @@ typedef struct html_content {
 	 */
 	struct form_control *visible_select_menu;
 
+	/*
+	 * Append-only: keep new fields at the end so incremental Amiga
+	 * builds that miss a private.h rebuild do not shift select_ctx
+	 * (that caused universal BoxConvert failure + MemList trash).
+	 */
+	/** Remote author stylesheets still loading (do not block first paint). */
+	unsigned int author_css_pending;
+	/** Deferred CSS rebuild could not run yet (e.g. cancel failed). */
+	bool css_restyle_pending;
+
 } html_content;
 
 /**
@@ -235,6 +245,11 @@ void html__redraw_a_box(html_content *htmlc, struct box *box);
  * \param htmlc Content to convert
  */
 void html_finish_conversion(html_content *htmlc);
+
+/**
+ * No-op: remote author CSS is not fetched (see html_css_process_link).
+ */
+void html_restyle_deferred_css(html_content *htmlc);
 
 
 /**

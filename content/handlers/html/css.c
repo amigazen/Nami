@@ -37,6 +37,7 @@
 #include "netsurf/misc.h"
 #include "netsurf/content.h"
 #include "content/hlcache.h"
+#include "content/content.h"
 #include "css/css.h"
 #include "desktop/gui_internal.h"
 
@@ -113,8 +114,15 @@ html_convert_css_callback(hlcache_handle *css,
 	case CONTENT_MSG_DONE:
 		NSLOG(netsurf, INFO, "done stylesheet slot %d '%s'", i,
 		      nsurl_access(hlcache_handle_get_url(css)));
-		parent->base.active--;
-		NSLOG(netsurf, INFO, "%d fetches active", parent->base.active);
+		if (s->defer_ok) {
+			if (parent->author_css_pending > 0) {
+				parent->author_css_pending--;
+			}
+		} else {
+			parent->base.active--;
+			NSLOG(netsurf, INFO, "%d fetches active",
+			      parent->base.active);
+		}
 		break;
 
 	case CONTENT_MSG_ERROR:
@@ -124,8 +132,15 @@ html_convert_css_callback(hlcache_handle *css,
 
 		hlcache_handle_release(css);
 		s->sheet = NULL;
-		parent->base.active--;
-		NSLOG(netsurf, INFO, "%d fetches active", parent->base.active);
+		if (s->defer_ok) {
+			if (parent->author_css_pending > 0) {
+				parent->author_css_pending--;
+			}
+		} else {
+			parent->base.active--;
+			NSLOG(netsurf, INFO, "%d fetches active",
+			      parent->base.active);
+		}
 		break;
 
 	case CONTENT_MSG_POINTER:
@@ -136,7 +151,11 @@ html_convert_css_callback(hlcache_handle *css,
 		break;
 	}
 
-	if (html_can_begin_conversion(parent)) {
+	if (s->defer_ok &&
+	    parent->author_css_pending == 0 &&
+	    parent->conversion_begun) {
+		html_restyle_deferred_css(parent);
+	} else if (html_can_begin_conversion(parent)) {
 		html_begin_conversion(parent);
 	}
 
@@ -252,6 +271,7 @@ html_create_style_element(html_content *c, dom_node *style)
 	c->stylesheets[c->stylesheet_count].sheet = NULL;
 	c->stylesheets[c->stylesheet_count].modified = false;
 	c->stylesheets[c->stylesheet_count].unused = false;
+	c->stylesheets[c->stylesheet_count].defer_ok = false;
 	c->stylesheet_count++;
 
 	return c->stylesheets + (c->stylesheet_count - 1);
@@ -390,6 +410,7 @@ bool html_css_process_link(html_content *htmlc, dom_node *node)
 	dom_exception exc;
 	nserror ns_error;
 	hlcache_child_context child;
+	lwc_string *scheme;
 
 	/* rel=<space separated list, including 'stylesheet'> */
 	exc = dom_element_get_attribute(node, corestring_dom_rel, &rel);
@@ -451,6 +472,28 @@ bool html_css_process_link(html_content *htmlc, dom_node *node)
 	NSLOG(netsurf, INFO, "linked stylesheet %i '%s'",
 	      htmlc->stylesheet_count, nsurl_access(joined));
 
+	/*
+	 * Remote http(s) author CSS is skipped on purpose: Vector-sized
+	 * sheets (Wikipedia ~200KB) make DOM→box too slow on classic Amiga,
+	 * and folding them in after first paint caused lockups.  Layout uses
+	 * default.css plus inline/style sheets only.
+	 */
+	scheme = nsurl_get_component(joined, NSURL_SCHEME);
+	if (scheme == corestring_lwc_http ||
+	    scheme == corestring_lwc_https) {
+		NSLOG(netsurf, INFO,
+		      "skip remote author CSS (first paint): '%s'",
+		      nsurl_access(joined));
+		if (scheme != NULL) {
+			lwc_string_unref(scheme);
+		}
+		nsurl_unref(joined);
+		return true;
+	}
+	if (scheme != NULL) {
+		lwc_string_unref(scheme);
+	}
+
 	/* extend stylesheets array to allow for new sheet */
 	stylesheets = realloc(htmlc->stylesheets,
 			      sizeof(struct html_stylesheet) *
@@ -465,8 +508,9 @@ bool html_css_process_link(html_content *htmlc, dom_node *node)
 	htmlc->stylesheets[htmlc->stylesheet_count].node = NULL;
 	htmlc->stylesheets[htmlc->stylesheet_count].modified = false;
 	htmlc->stylesheets[htmlc->stylesheet_count].unused = false;
+	htmlc->stylesheets[htmlc->stylesheet_count].defer_ok = false;
 
-	/* start fetch */
+	/* start fetch (resource:/file:/about: only) */
 	child.charset = htmlc->encoding;
 	child.quirks = htmlc->base.quirks;
 
@@ -482,7 +526,6 @@ bool html_css_process_link(html_content *htmlc, dom_node *node)
 		goto no_memory;
 
 	htmlc->stylesheet_count++;
-
 	htmlc->base.active++;
 	NSLOG(netsurf, INFO, "%d fetches active", htmlc->base.active);
 
@@ -688,6 +731,12 @@ html_css_new_selection_context(html_content *c, css_select_ctx **ret_select_ctx)
 		}
 
 		if (hsheet->sheet != NULL) {
+			/* Skip author sheets still loading (deferred first paint). */
+			if (hsheet->defer_ok &&
+			    content_get_status(hsheet->sheet) !=
+					CONTENT_STATUS_DONE) {
+				continue;
+			}
 			sheet = nscss_get_stylesheet(hsheet->sheet);
 		}
 

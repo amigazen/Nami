@@ -200,11 +200,12 @@ static PLANEPTR ami_bullet_chip_ensure(ULONG bytes)
 		return ami_bullet_chip;
 	}
 	if (ami_bullet_chip != NULL) {
-		FreeMem(ami_bullet_chip, ami_bullet_chip_bytes);
+		ami_memory_chip_free(ami_bullet_chip);
 		ami_bullet_chip = NULL;
 		ami_bullet_chip_bytes = 0;
 	}
-	ami_bullet_chip = (PLANEPTR)AllocMem(bytes, MEMF_CHIP | MEMF_PUBLIC);
+	/* BltTemplate requires Chip — sole chip use for glyph blit scratch */
+	ami_bullet_chip = (PLANEPTR)ami_memory_chip_alloc(bytes);
 	if (ami_bullet_chip != NULL) {
 		ami_bullet_chip_bytes = bytes;
 	}
@@ -214,7 +215,7 @@ static PLANEPTR ami_bullet_chip_ensure(ULONG bytes)
 static void ami_bullet_chip_fini(void)
 {
 	if (ami_bullet_chip != NULL) {
-		FreeMem(ami_bullet_chip, ami_bullet_chip_bytes);
+		ami_memory_chip_free(ami_bullet_chip);
 		ami_bullet_chip = NULL;
 		ami_bullet_chip_bytes = 0;
 	}

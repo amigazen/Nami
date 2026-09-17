@@ -21,14 +21,41 @@
 
 #include <stddef.h>
 #include <exec/types.h>
+#ifndef __amigaos4__
+#include <exec/memory.h>
+#include <proto/exec.h>
+#endif
 
-/* Alloc/free chip memory */
+/*
+ * Memory policy (classic / OS3):
+ *
+ * - Normal CPU-side allocations use default Public memory with Fast
+ *   preferred (ami_memory_allocvec / pools / clear_alloc). That keeps
+ *   Chip free for graphics.
+ * - Chip RAM is ONLY for blitter/graphics scratch "VRAM": TmpRas plane
+ *   buffers, BltTemplate glyph planes, AllocRaster masks/pointers, and
+ *   AGA friend BitMaps from graphics.library. Use ami_memory_chip_* or
+ *   AllocRaster/AllocBitMap — never MEMF_CHIP for general data.
+ *
+ * clib malloc/calloc follow the same preference (Fast when available).
+ */
+
+/* Alloc/free chip memory (graphics/blitter buffers only) */
 #ifdef __amigaos4__
 #define ami_memory_chip_alloc(s) malloc(s)
 #define ami_memory_chip_free(p) free(p)
 #else
-#define ami_memory_chip_alloc(s) AllocVec(s, MEMF_CHIP)
+#define ami_memory_chip_alloc(s) AllocVec((s), MEMF_CHIP | MEMF_PUBLIC)
 #define ami_memory_chip_free(p) FreeVec(p)
+#endif
+
+#ifndef __amigaos4__
+/**
+ * AllocVec for normal (non-Chip) data.
+ * Prefers Fast; falls back to any Public (chip-only machines).
+ * \param extra_flags e.g. MEMF_CLEAR, or 0
+ */
+APTR ami_memory_allocvec(ULONG size, ULONG extra_flags);
 #endif
 
 /* Alloc/free a block cleared to non-zero */
@@ -63,6 +90,18 @@ void ami_memory_slab_dump(BPTR fh);
 struct Interrupt *ami_memory_init(void);
 void ami_memory_fini(struct Interrupt *memhandler);
 void ami_memory_poll(void);
+BOOL ami_memory_under_pressure(void);
+void ami_memory_try_purge(void);
+/**
+ * Force-release unused llcache after a tab/window closes (content already
+ * unreffed by browser_window_destroy). Safe to call from the main loop.
+ */
+void ami_memory_purge_after_close(void);
+/**
+ * Cap decoded image dimensions so one banner cannot eat half of Fast.
+ * Adjusts *width / *height in place (aspect preserved).
+ */
+void ami_memory_cap_image_dims(int *width, int *height);
 #endif
 
 #endif /* AMIGA_MEMORY_H */

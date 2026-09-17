@@ -25,9 +25,16 @@
  *
  * We do not use HttpTransactionPerformAsync: shipped amihttp workers can race
  * CreateNewProc vs tc_UserData and use a stack too small for TLS.  Instead we
- * run HttpTransactionPerform (sync) on a NetSurf-owned CreateNewProc with a
- * large stack (same pattern as AGet's default path), then poll
- * for completion via a shared Exec notify signal.
+ * run HttpTransactionPerform (sync) on NetSurf-owned persistent worker tasks
+ * with a large stack, then poll for completion via a
+ * shared Exec notify signal.
+ *
+ * Keep-alive is enabled per worker HttpSession.  Workers stay alive across
+ * fetches and each owns its own session/pool partition (HTSA_TASK_SERIAL =
+ * that task) so AmiHTTP never hands a bsdsocket handle to a different Exec
+ * task — sharing one pool across workers corrupted AmiTCP on exit.
+ * Bodies are fully drained on the worker before Dispose so the library can
+ * return the connection to that worker's pool.
  */
 
 #include "utils/config.h"
@@ -49,6 +56,7 @@
 #include <dos/dostags.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <proto/intuition.h>
 #include <proto/amihttp.h>
 #include <libraries/amihttp.h>
 
@@ -75,9 +83,20 @@
 /** ReadBody chunk size. */
 #define AMIHTTP_BODY_CHUNK 8192
 
-/** Stack for NetSurf perform worker (TLS needs far more than amihttp's 8K). */
-#define AMIHTTP_WORKER_STACK 65536
+/** Stack for NetSurf perform worker (TLS needs more than amihttp's 8K). */
+#define AMIHTTP_WORKER_STACK 49152
 
+/** Cap workers — keep stack budget modest on classic Amiga RAM. */
+#define AMIHTTP_MAX_WORKERS 8
+
+/**
+ * Seconds a fetch may sit in AH_WAIT before we poke CTRL_C.
+ * Leave headroom under FAIL so AmiHTTP can unwind after the signal.
+ */
+#define AMIHTTP_WATCHDOG_SECS 20
+
+/** Hard-fail after this many seconds in AH_WAIT (must be > WATCHDOG, ≤30). */
+#define AMIHTTP_WATCHDOG_FAIL_SECS 30
 /** Per-fetch progress after sync Perform on the worker returns. */
 enum amihttp_phase {
 	AH_WAIT = 0,
@@ -99,6 +118,11 @@ struct amihttp_fetch_info {
 	volatile bool perform_done;
 	LONG perform_rv;
 	struct Task *worker_task;
+	int worker_idx;
+	ULONG wait_started_sec;
+	bool watchdog_signalled;
+	/** Job pointer so a wedged fetch can detach without Free-while-Perform. */
+	volatile struct amihttp_worker_job *job;
 	enum amihttp_phase phase;
 	char *cookie_string;
 	char *post_urlenc;
@@ -118,7 +142,10 @@ struct amihttp_fetch_info {
 	struct amihttp_fetch_info *r_next;
 };
 
-/** Passed to CreateNewProc; freed by the worker after Perform. */
+/**
+ * Job handed to a persistent worker.  Allocated on main, freed by the worker
+ * after Perform + body drain (or immediately if the worker is quitting).
+ */
 struct amihttp_worker_job {
 	struct amihttp_fetch_info *f;
 	struct HttpTransaction *txn;
@@ -126,14 +153,49 @@ struct amihttp_worker_job {
 	BYTE notify_sig;
 };
 
+/**
+ * Long-lived Perform task with its own HttpSession.
+ *
+ * Keep-alive sockets are task-affine (bsdsocket handle).  Sharing one session
+ * pool across workers let task B reuse task A's socket — concurrent I/O on the
+ * same SocketBase corrupts AmiTCP (corrupt memory list on exit).  Each worker
+ * therefore owns its session + pool partition (HTSA_TASK_SERIAL = this task).
+ */
+struct amihttp_worker {
+	struct Task *task;
+	struct HttpSession *session;
+	lwc_string *last_host;
+	BYTE wake_sigbit;
+	volatile bool ready;
+	volatile bool busy;
+	volatile bool quit;
+	volatile struct amihttp_worker_job *pending;
+};
+
 struct Library *HttpBase = NULL;
 
-static struct HttpSession *amihttp_session = NULL;
 static int amihttp_fetchers_registered = 0;
 static BYTE amihttp_notify_sig = -1;
 static struct amihttp_fetch_info *amihttp_ring = NULL;
 static char amihttp_proxy_buf[256];
 static char amihttp_proxy_auth_buf[256];
+static struct amihttp_worker amihttp_workers[AMIHTTP_MAX_WORKERS];
+static int amihttp_worker_count = 0;
+
+/**
+ * Wall-clock seconds for the fetch watchdog (intuition CurrentTime).
+ */
+static ULONG
+amihttp_now_sec(void)
+{
+	ULONG secs;
+	ULONG micros;
+
+	secs = 0;
+	micros = 0;
+	CurrentTime(&secs, &micros);
+	return secs;
+}
 
 /**
  * Free HttpFormPart nodes and any file buffers we allocated.
@@ -504,6 +566,24 @@ amihttp_send_error(struct amihttp_fetch_info *f, LONG code)
 }
 
 /**
+ * Fatal fetch failure for the watchdog — must be FETCH_ERROR.
+ * FETCH_TIMEDOUT makes llcache retry, so HTML stays blocked on stylesheets.
+ */
+static void
+amihttp_send_fatal_error(struct amihttp_fetch_info *f, const char *why)
+{
+	fetch_msg msg;
+
+	NSLOG(netsurf, WARNING, "amihttp fatal: %s for %s",
+	      why != NULL ? why : "failed",
+	      f->url != NULL ? nsurl_access(f->url) : "(null)");
+
+	msg.type = FETCH_ERROR;
+	msg.data.error = why != NULL ? why : "HTTP transfer failed";
+	fetch_send_callback(&msg, f->fetch_handle);
+}
+
+/**
  * Tear down transaction resources but leave the fetch_info for free().
  */
 static void
@@ -535,17 +615,41 @@ amihttp_stop_txn(struct amihttp_fetch_info *f)
 				      "amihttp_stop_txn: waiting for worker (%lu ticks)",
 				      (unsigned long)spins);
 			}
+			/* Give up: detach so we do not FreeMem under Perform. */
+			if (spins >= 500) {
+				Forbid();
+				if (f->job != NULL) {
+					((struct amihttp_worker_job *)f->job)->f =
+						NULL;
+					f->job = NULL;
+				}
+				/* Worker will DisposeHttpTransaction. */
+				f->txn = NULL;
+				f->perform_done = true;
+				Permit();
+				NSLOG(netsurf, WARNING,
+				      "amihttp_stop_txn: detached wedged fetch %s",
+				      f->url != NULL ? nsurl_access(f->url)
+						     : "(null)");
+				break;
+			}
 		}
 	}
 
-	DisposeHttpTransaction(f->txn);
-	f->txn = NULL;
+	if (f->txn != NULL) {
+		DisposeHttpTransaction(f->txn);
+		f->txn = NULL;
+	}
 	f->worker_task = NULL;
 	f->phase = AH_DONE;
 }
 
 /**
  * Append ReadBody chunks into f->body_data.  Runs on the worker task only.
+ *
+ * Must run to EOF on success so AmiHTTP's ht_http_body_finish can release the
+ * socket into the keep-alive pool.  DisposeHttpTransaction with ht_Conn still
+ * set always closes (keepalive=FALSE).
  */
 static void
 amihttp_worker_drain_body(struct amihttp_fetch_info *f,
@@ -587,6 +691,407 @@ amihttp_worker_drain_body(struct amihttp_fetch_info *f,
 }
 
 /**
+ * Persistent worker: Perform + ReadBody, then wait for the next job.
+ *
+ * Own HttpSession + TaskSerial == this task so keep-alive sockets stay on
+ * this SocketBase.  On quit, flush this task's pool before RemTask.
+ */
+static void
+amihttp_perform_worker(void)
+{
+	struct amihttp_worker *w;
+	struct amihttp_worker_job *job;
+	struct amihttp_fetch_info *f;
+	struct Task *self;
+	BYTE wake_sig;
+	LONG rv;
+	ULONG wakeset;
+
+	self = FindTask(NULL);
+	w = (struct amihttp_worker *)self->tc_UserData;
+	if (w == NULL) {
+		RemTask(NULL);
+		return;
+	}
+
+	wake_sig = AllocSignal(-1L);
+	if (wake_sig == -1) {
+		w->task = NULL;
+		w->ready = true;
+		RemTask(NULL);
+		return;
+	}
+
+	/*
+	 * Partition the keep-alive pool by this Exec task so HTBT_POOL_FLUSH
+	 * with ti_Data==0 (on quit) closes only our sockets, on this task.
+	 */
+	if (w->session != NULL) {
+		SetHttpSessionAttrs(
+			w->session,
+			HTSA_KEEPALIVE, (ULONG)TRUE,
+			HTSA_TASK_SERIAL, (ULONG)self,
+			TAG_DONE);
+	}
+
+	w->wake_sigbit = wake_sig;
+	w->task = self;
+	w->ready = true;
+	wakeset = (1UL << wake_sig) | SIGBREAKF_CTRL_C;
+
+	for (;;) {
+		Wait(wakeset);
+
+		if (w->quit) {
+			break;
+		}
+
+		job = (struct amihttp_worker_job *)w->pending;
+		if (job == NULL) {
+			/* Spurious CTRL_C while idle — ignore. */
+			continue;
+		}
+		w->pending = NULL;
+
+		f = job->f;
+		rv = HttpTransactionPerform(job->txn);
+		/*
+		 * f may have been detached by the main-task watchdog while we
+		 * were inside Perform — do not touch fetch_info in that case.
+		 */
+		f = job->f;
+		if (f != NULL) {
+			f->perform_rv = rv;
+			/*
+			 * Perform returns TRUE (non-zero) on success.  Drain
+			 * the entity so keep-alive can pool the socket.
+			 */
+			if (rv != 0) {
+				amihttp_worker_drain_body(f, job->txn);
+			} else if (HttpBase != NULL) {
+				/*
+				 * Failed Perform often leaves a dead socket in
+				 * this worker's pool (watchdog CTRL_C, SSL
+				 * death).  Next navigate then fails instantly
+				 * with 8702 keepalive reuse — flush here.
+				 */
+				HttpBaseTags(HTBT_POOL_FLUSH, (ULONG)FALSE,
+					     TAG_DONE);
+			}
+			f->perform_done = true;
+			f->job = NULL;
+		} else if (job->txn != NULL) {
+			/* Orphaned (watchdog detach): drain if Perform
+			 * succeeded, always dispose, flush poisoned pool.
+			 */
+			if (rv != 0) {
+				uint8_t sink[AMIHTTP_BODY_CHUNK];
+				LONG n;
+
+				for (;;) {
+					n = HttpTransactionReadBody(job->txn,
+							(APTR)sink,
+							(ULONG)sizeof(sink));
+					if (n <= 0) {
+						break;
+					}
+				}
+			}
+			DisposeHttpTransaction(job->txn);
+			job->txn = NULL;
+			if (HttpBase != NULL) {
+				HttpBaseTags(HTBT_POOL_FLUSH, (ULONG)FALSE,
+					     TAG_DONE);
+			}
+		}
+
+		if (job->notify_task != NULL && job->notify_sig != -1) {
+			Signal(job->notify_task, 1UL << job->notify_sig);
+		}
+
+		FreeMem(job, sizeof(*job));
+		w->busy = false;
+	}
+
+	job = (struct amihttp_worker_job *)w->pending;
+	if (job != NULL) {
+		w->pending = NULL;
+		if (job->f != NULL) {
+			job->f->perform_done = true;
+			job->f->perform_rv = 0;
+		}
+		FreeMem(job, sizeof(*job));
+	}
+	w->busy = false;
+
+	/*
+	 * Close idle keep-alive sockets on THIS task before RemTask.  Main
+	 * must never HTBT_POOL_FLUSH(TRUE) — CloseSocket/CloseLibrary of
+	 * another task's bsdsocket corrupts AmiTCP.
+	 */
+	if (HttpBase != NULL) {
+		HttpBaseTags(HTBT_POOL_FLUSH, (ULONG)FALSE, TAG_DONE);
+		HttpBaseTags(HTBT_TASK_SSL_RELEASE, (ULONG)TRUE, TAG_DONE);
+		HttpBaseTags(HTBT_TASK_SOCKET_RELEASE, (ULONG)TRUE, TAG_DONE);
+	}
+
+	if (w->session != NULL) {
+		DisposeHttpSession(w->session);
+		w->session = NULL;
+	}
+
+	w->task = NULL;
+	FreeSignal(wake_sig);
+	RemTask(NULL);
+}
+
+/**
+ * Create one persistent worker and wait until it is ready to accept jobs.
+ */
+static bool
+amihttp_spawn_worker(struct amihttp_worker *w)
+{
+	struct Process *proc;
+	ULONG spins;
+
+	w->task = NULL;
+	w->wake_sigbit = -1;
+	w->ready = false;
+	w->busy = false;
+	w->quit = false;
+	w->pending = NULL;
+	w->last_host = NULL;
+
+	w->session = NewHttpSession();
+	if (w->session == NULL) {
+		return false;
+	}
+
+	SetHttpSessionAttrs(
+		w->session,
+		HTSA_FOLLOW_REDIRECTS, (ULONG)FALSE,
+		HTSA_ACCEPT_ENCODING, (ULONG)"gzip",
+		HTSA_KEEPALIVE, (ULONG)TRUE,
+		HTSA_CONNECT_TIMEOUT, (ULONG)nsoption_uint(curl_fetch_timeout),
+		HTSA_READ_TIMEOUT, (ULONG)nsoption_uint(curl_fetch_timeout),
+		HTSA_MAX_CONNECTIONS,
+			(ULONG)(nsoption_int(max_fetchers_per_host) +
+				nsoption_int(max_cached_fetch_handles)),
+		TAG_DONE);
+
+	Forbid();
+	proc = CreateNewProcTags(
+		NP_Entry, (ULONG)amihttp_perform_worker,
+		NP_StackSize, (ULONG)AMIHTTP_WORKER_STACK,
+		NP_Name, (ULONG)"ns-amihttp",
+		TAG_END);
+	if (proc == NULL) {
+		Permit();
+		DisposeHttpSession(w->session);
+		w->session = NULL;
+		return false;
+	}
+	((struct Task *)proc)->tc_UserData = (APTR)w;
+	Permit();
+
+	spins = 0;
+	while (w->ready == false && spins < 500) {
+		Delay(1);
+		spins++;
+	}
+
+	if (w->ready == false || w->task == NULL || w->wake_sigbit == -1) {
+		NSLOG(netsurf, ERROR, "amihttp worker spawn timed out");
+		w->quit = true;
+		DisposeHttpSession(w->session);
+		w->session = NULL;
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * Start persistent workers used for keep-alive connection reuse.
+ */
+static bool
+amihttp_workers_start(int want)
+{
+	int i;
+
+	if (want < 1) {
+		want = 1;
+	}
+	if (want > AMIHTTP_MAX_WORKERS) {
+		want = AMIHTTP_MAX_WORKERS;
+	}
+
+	amihttp_worker_count = 0;
+	for (i = 0; i < want; i++) {
+		if (amihttp_spawn_worker(&amihttp_workers[i]) == false) {
+			break;
+		}
+		amihttp_worker_count++;
+	}
+
+	if (amihttp_worker_count < 1) {
+		NSLOG(netsurf, ERROR, "amihttp: no workers started");
+		return false;
+	}
+
+	NSLOG(netsurf, INFO, "amihttp: %d persistent workers (keepalive)",
+	      amihttp_worker_count);
+	return true;
+}
+
+/**
+ * Signal workers to exit and wait for RemTask (each flushes its own pool).
+ */
+static void
+amihttp_workers_stop(void)
+{
+	int i;
+	ULONG spins;
+	struct amihttp_worker *w;
+	bool any;
+
+	for (i = 0; i < amihttp_worker_count; i++) {
+		w = &amihttp_workers[i];
+		w->quit = true;
+		if (w->task != NULL && w->wake_sigbit != -1) {
+			Signal(w->task, 1UL << w->wake_sigbit);
+		}
+	}
+
+	spins = 0;
+	for (;;) {
+		any = false;
+		for (i = 0; i < amihttp_worker_count; i++) {
+			if (amihttp_workers[i].task != NULL) {
+				any = true;
+				break;
+			}
+		}
+		if (any == false) {
+			break;
+		}
+		Delay(1);
+		spins++;
+		if ((spins % 500) == 0) {
+			NSLOG(netsurf, WARNING,
+			      "amihttp_workers_stop: waiting (%lu ticks)",
+			      (unsigned long)spins);
+		}
+	}
+
+	for (i = 0; i < amihttp_worker_count; i++) {
+		w = &amihttp_workers[i];
+		if (w->last_host != NULL) {
+			lwc_string_unref(w->last_host);
+			w->last_host = NULL;
+		}
+		/* Session should already be disposed on the worker task. */
+		if (w->session != NULL) {
+			DisposeHttpSession(w->session);
+			w->session = NULL;
+		}
+	}
+
+	amihttp_worker_count = 0;
+}
+
+/**
+ * Claim an idle worker, preferring one that last fetched the same host
+ * so keep-alive sockets are more likely to be reused.
+ */
+static struct amihttp_worker *
+amihttp_claim_worker(lwc_string *host)
+{
+	struct amihttp_worker *w;
+	struct amihttp_worker *fallback;
+	int i;
+	bool match;
+
+	w = NULL;
+	fallback = NULL;
+
+	Forbid();
+	for (i = 0; i < amihttp_worker_count; i++) {
+		if (amihttp_workers[i].task == NULL ||
+		    amihttp_workers[i].busy ||
+		    amihttp_workers[i].quit ||
+		    amihttp_workers[i].session == NULL) {
+			continue;
+		}
+		match = false;
+		if (host != NULL && amihttp_workers[i].last_host != NULL) {
+			if (amihttp_workers[i].last_host == host) {
+				match = true;
+			}
+		}
+		if (match) {
+			amihttp_workers[i].busy = true;
+			w = &amihttp_workers[i];
+			break;
+		}
+		if (fallback == NULL) {
+			fallback = &amihttp_workers[i];
+		}
+	}
+	if (w == NULL && fallback != NULL) {
+		fallback->busy = true;
+		w = fallback;
+	}
+	Permit();
+
+	return w;
+}
+
+/**
+ * Queue Perform+drain on an already-claimed worker.
+ */
+static bool
+amihttp_queue_worker(struct amihttp_worker *w, struct amihttp_fetch_info *f)
+{
+	struct amihttp_worker_job *job;
+
+	job = AllocMem(sizeof(*job), MEMF_PUBLIC | MEMF_CLEAR);
+	if (job == NULL) {
+		w->busy = false;
+		return false;
+	}
+
+	job->f = f;
+	job->txn = f->txn;
+	job->notify_task = FindTask(NULL);
+	job->notify_sig = amihttp_notify_sig;
+	f->perform_done = false;
+	f->perform_rv = 0;
+	f->worker_task = w->task;
+	f->worker_idx = (int)(w - amihttp_workers);
+	f->wait_started_sec = amihttp_now_sec();
+	f->watchdog_signalled = false;
+	f->job = job;
+
+	if (f->host != NULL) {
+		if (w->last_host != NULL) {
+			lwc_string_unref(w->last_host);
+		}
+		w->last_host = lwc_string_ref(f->host);
+	}
+
+	/*
+	 * Assign pending under Forbid so the worker cannot observe a half
+	 * update if it is already runnable; then wake it.
+	 */
+	Forbid();
+	w->pending = job;
+	Permit();
+	Signal(w->task, 1UL << w->wake_sigbit);
+	return true;
+}
+
+/**
  * Finish a fetch: stop txn, free parent fetch.
  * Caller must already have removed f from amihttp_ring (or f was never inserted).
  */
@@ -605,87 +1110,6 @@ amihttp_finish(struct amihttp_fetch_info *f, bool send_finished)
 
 	fetch_remove_from_queues(f->fetch_handle);
 	fetch_free(f->fetch_handle);
-}
-
-/**
- * Worker entry: sync Perform + ReadBody on this task, then notify main.
- *
- * bsdsocket handles are task-affine; draining the body here avoids hanging
- * the UI when main would otherwise ReadBody on the wrong SocketBase.
- */
-static void
-amihttp_perform_worker(void)
-{
-	struct amihttp_worker_job *job;
-	struct amihttp_fetch_info *f;
-	struct Task *self;
-	LONG rv;
-
-	self = FindTask(NULL);
-	job = (struct amihttp_worker_job *)self->tc_UserData;
-	if (job == NULL) {
-		RemTask(NULL);
-		return;
-	}
-
-	f = job->f;
-	rv = HttpTransactionPerform(job->txn);
-	if (f != NULL) {
-		f->perform_rv = rv;
-		if (rv != 0) {
-			amihttp_worker_drain_body(f, job->txn);
-		}
-		f->perform_done = true;
-	}
-
-	if (job->notify_task != NULL && job->notify_sig != -1) {
-		Signal(job->notify_task, 1UL << job->notify_sig);
-	}
-
-	FreeMem(job, sizeof(*job));
-	RemTask(NULL);
-}
-
-/**
- * Start sync Perform on a NetSurf-owned process (avoids library PerformAsync).
- */
-static bool
-amihttp_start_worker(struct amihttp_fetch_info *f)
-{
-	struct amihttp_worker_job *job;
-	struct Process *proc;
-
-	job = AllocMem(sizeof(*job), MEMF_PUBLIC | MEMF_CLEAR);
-	if (job == NULL) {
-		return false;
-	}
-
-	job->f = f;
-	job->txn = f->txn;
-	job->notify_task = FindTask(NULL);
-	job->notify_sig = amihttp_notify_sig;
-	f->perform_done = false;
-	f->perform_rv = 0;
-
-	/*
-	 * Forbid so tc_UserData is set before the worker can run — same
-	 * CreateNewProc race the library async path is vulnerable to.
-	 */
-	Forbid();
-	proc = CreateNewProcTags(
-		NP_Entry, (ULONG)amihttp_perform_worker,
-		NP_StackSize, (ULONG)AMIHTTP_WORKER_STACK,
-		NP_Name, (ULONG)"ns-amihttp",
-		TAG_END);
-	if (proc == NULL) {
-		Permit();
-		FreeMem(job, sizeof(*job));
-		return false;
-	}
-	((struct Task *)proc)->tc_UserData = (APTR)job;
-	f->worker_task = (struct Task *)proc;
-	Permit();
-	return true;
 }
 
 static bool
@@ -715,10 +1139,7 @@ fetch_amihttp_finalise(lwc_string *scheme)
 		amihttp_finish(f, false);
 	}
 
-	if (amihttp_session != NULL) {
-		DisposeHttpSession(amihttp_session);
-		amihttp_session = NULL;
-	}
+	amihttp_workers_stop();
 
 	if (amihttp_notify_sig != -1) {
 		FreeSignal(amihttp_notify_sig);
@@ -752,6 +1173,8 @@ fetch_amihttp_setup(struct fetch *parent_fetch,
 
 	(void)downgrade_tls;
 
+	/* SVG may be rendered by svg.datatype when installed. */
+
 	f = calloc(1, sizeof(*f));
 	if (f == NULL) {
 		return NULL;
@@ -760,6 +1183,7 @@ fetch_amihttp_setup(struct fetch *parent_fetch,
 	f->fetch_handle = parent_fetch;
 	f->only_2xx = only_2xx;
 	f->phase = AH_DONE;
+	f->worker_idx = -1;
 	f->url = nsurl_ref(url);
 	f->host = nsurl_get_component(url, NSURL_HOST);
 	if (f->host == NULL) {
@@ -823,27 +1247,36 @@ failed:
 
 /**
  * Apply session-level options that may change between fetches.
+ * Does not touch HTSA_TASK_SERIAL (owned by the worker task).
  */
 static void
-amihttp_configure_session(struct amihttp_fetch_info *f)
+amihttp_configure_session(struct HttpSession *session,
+			  struct amihttp_fetch_info *f)
 {
 	const char *auth;
 	ULONG ssl_verify;
 	int proxy_port;
 
+	if (session == NULL) {
+		return;
+	}
+
 	SetHttpSessionAttrs(
-		amihttp_session,
+		session,
 		HTSA_USERAGENT, (ULONG)user_agent_string(),
 		HTSA_FOLLOW_REDIRECTS, (ULONG)FALSE,
 		HTSA_ACCEPT_ENCODING, (ULONG)"gzip",
+		HTSA_KEEPALIVE, (ULONG)TRUE,
 		HTSA_CONNECT_TIMEOUT,
+			(ULONG)nsoption_uint(curl_fetch_timeout),
+		HTSA_READ_TIMEOUT,
 			(ULONG)nsoption_uint(curl_fetch_timeout),
 		TAG_DONE);
 
 	if (nsoption_charp(ca_bundle) != NULL &&
 	    nsoption_charp(ca_bundle)[0] != '\0') {
 		SetHttpSessionAttrs(
-			amihttp_session,
+			session,
 			HTSA_CA_BUNDLE_PATH, (ULONG)nsoption_charp(ca_bundle),
 			TAG_DONE);
 	}
@@ -854,19 +1287,19 @@ amihttp_configure_session(struct amihttp_fetch_info *f)
 		ssl_verify = HTSSL_VERIFY_PEER;
 	}
 	SetHttpSessionAttrs(
-		amihttp_session,
+		session,
 		HTSA_SSL_VERIFY, ssl_verify,
 		TAG_DONE);
 
 	auth = urldb_get_auth_details(f->url, NULL);
 	if (auth != NULL) {
 		SetHttpSessionAttrs(
-			amihttp_session,
+			session,
 			HTSA_CREDENTIALS, (ULONG)auth,
 			TAG_DONE);
 	} else {
 		SetHttpSessionAttrs(
-			amihttp_session,
+			session,
 			HTSA_CREDENTIALS, (ULONG)NULL,
 			TAG_DONE);
 	}
@@ -880,7 +1313,7 @@ amihttp_configure_session(struct amihttp_fetch_info *f)
 			 nsoption_charp(http_proxy_host),
 			 proxy_port);
 		SetHttpSessionAttrs(
-			amihttp_session,
+			session,
 			HTSA_PROXY, (ULONG)amihttp_proxy_buf,
 			TAG_DONE);
 
@@ -894,13 +1327,13 @@ amihttp_configure_session(struct amihttp_fetch_info *f)
 				 nsoption_charp(http_proxy_auth_pass) ?
 				 nsoption_charp(http_proxy_auth_pass) : "");
 			SetHttpSessionAttrs(
-				amihttp_session,
+				session,
 				HTSA_PROXY_AUTH, (ULONG)amihttp_proxy_auth_buf,
 				TAG_DONE);
 		}
 	} else {
 		SetHttpSessionAttrs(
-			amihttp_session,
+			session,
 			HTSA_PROXY, (ULONG)NULL,
 			HTSA_PROXY_AUTH, (ULONG)NULL,
 			TAG_DONE);
@@ -911,6 +1344,7 @@ static bool
 fetch_amihttp_start(void *handle)
 {
 	struct amihttp_fetch_info *f = handle;
+	struct amihttp_worker *w;
 	struct HttpTransaction *txn;
 	const char *method;
 	char lang[96];
@@ -918,14 +1352,22 @@ fetch_amihttp_start(void *handle)
 	int i;
 	LONG ok;
 
-	if (amihttp_session == NULL || amihttp_notify_sig == -1) {
+	if (amihttp_notify_sig == -1 || amihttp_worker_count < 1) {
 		return false;
 	}
 
-	amihttp_configure_session(f);
+	w = amihttp_claim_worker(f->host);
+	if (w == NULL) {
+		NSLOG(netsurf, WARNING, "amihttp: no idle worker for %s",
+		      nsurl_access(f->url));
+		return false;
+	}
 
-	txn = NewHttpTransaction(amihttp_session);
+	amihttp_configure_session(w->session, f);
+
+	txn = NewHttpTransaction(w->session);
 	if (txn == NULL) {
+		w->busy = false;
 		return false;
 	}
 
@@ -941,6 +1383,7 @@ fetch_amihttp_start(void *handle)
 		TAG_DONE);
 	if (!ok) {
 		DisposeHttpTransaction(txn);
+		w->busy = false;
 		return false;
 	}
 
@@ -955,6 +1398,7 @@ fetch_amihttp_start(void *handle)
 	} else if (f->post_multipart != NULL) {
 		if (amihttp_build_multipart(f) == false) {
 			DisposeHttpTransaction(txn);
+			w->busy = false;
 			return false;
 		}
 		SetHttpTransactionAttrs(
@@ -993,8 +1437,8 @@ fetch_amihttp_start(void *handle)
 	}
 
 	f->txn = txn;
-	if (amihttp_start_worker(f) == false) {
-		NSLOG(netsurf, INFO, "amihttp worker start failed for %s",
+	if (amihttp_queue_worker(w, f) == false) {
+		NSLOG(netsurf, INFO, "amihttp worker queue failed for %s",
 		      nsurl_access(f->url));
 		DisposeHttpTransaction(txn);
 		f->txn = NULL;
@@ -1071,6 +1515,8 @@ amihttp_poll_one(struct amihttp_fetch_info *f)
 	ULONG budget;
 	fetch_msg msg;
 	size_t n;
+	struct HttpTiming timing;
+	ULONG connect_ms;
 
 	if (f->abort) {
 		NSLOG(netsurf, INFO, "amihttp abort %s",
@@ -1081,16 +1527,80 @@ amihttp_poll_one(struct amihttp_fetch_info *f)
 
 	if (f->phase == AH_WAIT) {
 		if (f->perform_done == false) {
+			ULONG now;
+			ULONG elapsed;
+			struct amihttp_worker *w;
+
+			now = amihttp_now_sec();
+			elapsed = (now >= f->wait_started_sec)
+				? (now - f->wait_started_sec) : 0;
+
+			/*
+			 * Stuck fetch: HTML conversion waits forever while
+			 * stylesheet fetches sit in AH_WAIT (amigans xoops.css
+			 * / style.css never completed in ns.log).  Re-signal
+			 * wake if the job never left pending; CTRL_C if AmiHTTP
+			 * I/O is wedged past the watchdog.
+			 */
+			if (f->worker_idx >= 0 &&
+			    f->worker_idx < amihttp_worker_count) {
+				w = &amihttp_workers[f->worker_idx];
+				if (w->task != NULL &&
+				    w->pending != NULL &&
+				    w->wake_sigbit != -1) {
+					Signal(w->task,
+					       1UL << w->wake_sigbit);
+				}
+			}
+
+			if (elapsed >= AMIHTTP_WATCHDOG_SECS &&
+			    f->watchdog_signalled == false) {
+				f->watchdog_signalled = true;
+				NSLOG(netsurf, WARNING,
+				      "amihttp watchdog %lus: poking CTRL_C for %s",
+				      (unsigned long)elapsed,
+				      f->url != NULL ? nsurl_access(f->url)
+						     : "(null)");
+				if (f->worker_task != NULL) {
+					Signal(f->worker_task,
+					       SIGBREAKF_CTRL_C);
+				}
+			}
+
+			/*
+			 * Still wedged: fail with FETCH_ERROR (not TIMEDOUT) so
+			 * llcache does not retry and HTML can leave stylesheet
+			 * wait. Wikipedia's combined load.php CSS hung ~81s.
+			 */
+			if (elapsed >= AMIHTTP_WATCHDOG_FAIL_SECS) {
+				NSLOG(netsurf, WARNING,
+				      "amihttp watchdog %lus: failing wedged %s",
+				      (unsigned long)elapsed,
+				      f->url != NULL ? nsurl_access(f->url)
+						     : "(null)");
+				amihttp_send_fatal_error(f,
+						"Read timed out (watchdog)");
+				amihttp_finish(f, false);
+				return false;
+			}
+
 			return true;
 		}
 
 		err = HttpTransactionGetLastError(f->txn);
+		connect_ms = 0;
+		if (HttpTransactionGetTiming(f->txn, &timing)) {
+			connect_ms = timing.ht_ConnectMs;
+		}
 		NSLOG(netsurf, INFO,
-		      "amihttp complete wait %s rv=%ld err=%ld status=%ld (%s)",
+		      "amihttp complete wait %s rv=%ld err=%ld "
+		      "status=%ld connect_ms=%lu%s (%s)",
 		      nsurl_access(f->url),
 		      (long)f->perform_rv,
 		      (long)err,
 		      (long)HttpTransactionGetStatusCode(f->txn),
+		      (unsigned long)connect_ms,
+		      connect_ms == 0 ? " [keepalive reuse]" : "",
 		      HttpGetErrorString(err) != NULL
 			      ? (char *)HttpGetErrorString(err) : "");
 
@@ -1217,9 +1727,34 @@ fetch_amihttp_register(void)
 		return NSERROR_INIT_FAILED;
 	}
 
-	amihttp_session = NewHttpSession();
-	if (amihttp_session == NULL) {
-		NSLOG(netsurf, ERROR, "NewHttpSession failed");
+	/* Base tags: CA bundle, timeouts, peer verify, pool. */
+	if (nsoption_charp(ca_bundle) != NULL &&
+	    nsoption_charp(ca_bundle)[0] != '\0') {
+		HttpBaseTags(
+			HTBT_DEFAULT_TIMEOUT, (ULONG)30,
+			HTBT_SSL_VERIFY, (ULONG)HTSSL_VERIFY_PEER,
+			HTBT_CA_BUNDLE_PATH, (ULONG)nsoption_charp(ca_bundle),
+			HTBT_BREAKMASK, (ULONG)SIGBREAKF_CTRL_C,
+			HTBT_MAX_IDLE_CONNECTIONS,
+				(ULONG)(nsoption_int(max_cached_fetch_handles) +
+					nsoption_int(max_fetchers_per_host)),
+			HTBT_IDLE_TIMEOUT, (ULONG)30,
+			TAG_DONE);
+		NSLOG(netsurf, INFO, "amihttp CA bundle %s",
+		      nsoption_charp(ca_bundle));
+	} else {
+		HttpBaseTags(
+			HTBT_DEFAULT_TIMEOUT, (ULONG)30,
+			HTBT_SSL_VERIFY, (ULONG)HTSSL_VERIFY_PEER,
+			HTBT_BREAKMASK, (ULONG)SIGBREAKF_CTRL_C,
+			HTBT_MAX_IDLE_CONNECTIONS,
+				(ULONG)(nsoption_int(max_cached_fetch_handles) +
+					nsoption_int(max_fetchers_per_host)),
+			HTBT_IDLE_TIMEOUT, (ULONG)30,
+			TAG_DONE);
+	}
+
+	if (amihttp_workers_start(nsoption_int(max_fetchers)) == false) {
 		FreeSignal(amihttp_notify_sig);
 		amihttp_notify_sig = -1;
 		CloseLibrary(HttpBase);
@@ -1227,42 +1762,10 @@ fetch_amihttp_register(void)
 		return NSERROR_INIT_FAILED;
 	}
 
-	/* Base tags: CA bundle, timeouts, peer verify. */
-	if (nsoption_charp(ca_bundle) != NULL &&
-	    nsoption_charp(ca_bundle)[0] != '\0') {
-		HttpBaseTags(
-			HTBT_DEFAULT_TIMEOUT, (ULONG)15,
-			HTBT_SSL_VERIFY, (ULONG)HTSSL_VERIFY_PEER,
-			HTBT_CA_BUNDLE_PATH, (ULONG)nsoption_charp(ca_bundle),
-			HTBT_BREAKMASK, (ULONG)SIGBREAKF_CTRL_C,
-			TAG_DONE);
-		NSLOG(netsurf, INFO, "amihttp CA bundle %s",
-		      nsoption_charp(ca_bundle));
-	} else {
-		HttpBaseTags(
-			HTBT_DEFAULT_TIMEOUT, (ULONG)15,
-			HTBT_SSL_VERIFY, (ULONG)HTSSL_VERIFY_PEER,
-			HTBT_BREAKMASK, (ULONG)SIGBREAKF_CTRL_C,
-			TAG_DONE);
-	}
-
-	SetHttpSessionAttrs(
-		amihttp_session,
-		HTSA_FOLLOW_REDIRECTS, (ULONG)FALSE,
-		HTSA_ACCEPT_ENCODING, (ULONG)"gzip",
-		HTSA_KEEPALIVE, (ULONG)FALSE,
-		HTSA_CONNECT_TIMEOUT, (ULONG)15,
-		HTSA_READ_TIMEOUT, (ULONG)30,
-		HTSA_MAX_CONNECTIONS,
-			(ULONG)(nsoption_int(max_fetchers) +
-				nsoption_int(max_cached_fetch_handles)),
-		TAG_DONE);
-
 	scheme = lwc_string_ref(corestring_lwc_http);
 	ret = fetcher_add(scheme, &fetcher_ops);
 	if (ret != NSERROR_OK) {
-		DisposeHttpSession(amihttp_session);
-		amihttp_session = NULL;
+		amihttp_workers_stop();
 		FreeSignal(amihttp_notify_sig);
 		amihttp_notify_sig = -1;
 		CloseLibrary(HttpBase);
@@ -1276,7 +1779,7 @@ fetch_amihttp_register(void)
 		return ret;
 	}
 
-	NSLOG(netsurf, INFO, "amihttp fetcher registered");
+	NSLOG(netsurf, INFO, "amihttp fetcher registered (keepalive on)");
 	return NSERROR_OK;
 }
 

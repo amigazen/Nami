@@ -16,17 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "amiga/os3support.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
 #include <proto/dos.h>
 #include <proto/exec.h>
+#include <proto/intuition.h>
 #include <proto/utility.h>
 
-#ifndef __amigaos4__
-#include <proto/intuition.h> // for EasyRequest
-#endif
+#include <classes/requester.h>
+#include <intuition/classusr.h>
 
 #include "utils/utils.h"
 #include "utils/corestrings.h"
@@ -39,60 +41,238 @@
 #include "netsurf/window.h"
 
 #include "amiga/gui.h"
+#include "amiga/libs.h"
 #include "amiga/misc.h"
 #include "amiga/utf8.h"
 
-static LONG ami_misc_req(const char *message, uint32 type)
+#ifdef __amigaos4__
+extern struct ClassLibrary *RequesterBase;
+#else
+extern struct Library *RequesterBase;
+#endif
+
+/**
+ * Map AMI_REQ_IMAGE_* to requester.class REQIMAGE_* (V47+).
+ */
+static ULONG ami_misc_req_image_class(ULONG image)
 {
-	LONG ret = 0;
-	struct gui_window *cur_gw = ami_gui_get_active_gw();
-	char *local_msg;
-	char *local_title;
-	char *local_ok;
+	switch(image) {
+	case AMI_REQ_IMAGE_WARNING:
+		return REQIMAGE_WARNING;
+	case AMI_REQ_IMAGE_ERROR:
+		return REQIMAGE_ERROR;
+	case AMI_REQ_IMAGE_QUESTION:
+		return REQIMAGE_QUESTION;
+	case AMI_REQ_IMAGE_INFO:
+	default:
+		return REQIMAGE_INFO;
+	}
+}
+
+/**
+ * Map AMI_REQ_IMAGE_* to TimedDosRequester TDRIMAGE_* (OS4 fallback).
+ */
+static ULONG ami_misc_req_image_tdr(ULONG image)
+{
+	switch(image) {
+	case AMI_REQ_IMAGE_WARNING:
+		return TDRIMAGE_WARNING;
+	case AMI_REQ_IMAGE_ERROR:
+		return TDRIMAGE_ERROR;
+#ifdef __amigaos4__
+	case AMI_REQ_IMAGE_QUESTION:
+		return TDRIMAGE_QUESTION;
+	case AMI_REQ_IMAGE_INFO:
+	default:
+		return TDRIMAGE_INFO;
+#else
+	case AMI_REQ_IMAGE_QUESTION:
+		return TDRIMAGE_WARNING;
+	case AMI_REQ_IMAGE_INFO:
+	default:
+		return TDRIMAGE_WARNING;
+#endif
+	}
+}
+
+/**
+ * Try requester.class RM_OPENREQ. Returns -2 if the class is unavailable
+ * or NewObject failed so the caller can fall back.
+ */
+static LONG ami_misc_requester_via_class(struct Window *win,
+		const char *title, const char *body, const char *gadgets,
+		ULONG image, LONG timeout_secs, BOOL inactive)
+{
+	Object *reqobj;
+	struct orRequest reqmsg;
+	struct TagItem tags[12];
+	ULONG n;
+	LONG ret;
+	struct Screen *scr;
+	ULONG libver;
+
+	if(RequesterClass == NULL)
+		return -2;
+
+	reqobj = NewObject(RequesterClass, NULL, TAG_DONE);
+	if(reqobj == NULL)
+		return -2;
+
+	n = 0;
+	tags[n].ti_Tag = REQ_Type;
+	tags[n].ti_Data = REQTYPE_INFO;
+	n++;
+	tags[n].ti_Tag = REQ_TitleText;
+	tags[n].ti_Data = (ULONG)title;
+	n++;
+	tags[n].ti_Tag = REQ_BodyText;
+	tags[n].ti_Data = (ULONG)body;
+	n++;
+	tags[n].ti_Tag = REQ_GadgetText;
+	tags[n].ti_Data = (ULONG)gadgets;
+	n++;
+
+	libver = 0;
+	if(RequesterBase != NULL)
+		libver = ((struct Library *)RequesterBase)->lib_Version;
+	if(libver >= 47) {
+		tags[n].ti_Tag = REQ_Image;
+		tags[n].ti_Data = ami_misc_req_image_class(image);
+		n++;
+	}
+
+#ifdef __amigaos4__
+	/* Timeout / inactive are OS4-only requester.class tags */
+	if(timeout_secs > 0) {
+		tags[n].ti_Tag = REQ_TimeOutSecs;
+		tags[n].ti_Data = (ULONG)timeout_secs;
+		n++;
+		tags[n].ti_Tag = REQ_Inactive;
+		tags[n].ti_Data = inactive ? TRUE : FALSE;
+		n++;
+	}
+#else
+	(void)timeout_secs;
+	(void)inactive;
+#endif
+
+	tags[n].ti_Tag = TAG_DONE;
+	tags[n].ti_Data = 0;
+
+	scr = NULL;
+	if(win == NULL)
+		scr = ami_gui_get_screen();
+
+	reqmsg.MethodID = RM_OPENREQ;
+	reqmsg.or_Attrs = tags;
+	reqmsg.or_Window = win;
+	reqmsg.or_Screen = scr;
+
+	ret = (LONG)IDoMethodA(reqobj, (Msg)&reqmsg);
+	DisposeObject(reqobj);
+	return ret;
+}
+
+/* exported interface documented in amiga/misc.h */
+LONG ami_misc_requester(struct Window *win,
+		const char *title, const char *body, const char *gadgets,
+		ULONG image)
+{
+	return ami_misc_requester_ex(win, title, body, gadgets, image, 0, FALSE);
+}
+
+/* exported interface documented in amiga/misc.h */
+LONG ami_misc_requester_ex(struct Window *win,
+		const char *title, const char *body, const char *gadgets,
+		ULONG image, LONG timeout_secs, BOOL inactive)
+{
+	LONG ret;
 #ifndef __amigaos4__
 	struct EasyStruct easyreq;
 #endif
 
-	(void)type;
+	if(title == NULL)
+		title = "Nami";
+	if(body == NULL)
+		body = "";
+	if(gadgets == NULL)
+		gadgets = "OK";
 
-	/* EasyRequest / intuition expect the system charset, not UTF-8. */
+	ret = ami_misc_requester_via_class(win, title, body, gadgets,
+			image, timeout_secs, inactive);
+	if(ret != -2)
+		return ret;
+
+#ifdef __amigaos4__
+	if(timeout_secs > 0) {
+		ret = TimedDosRequesterTags(
+			TDR_TitleString, title,
+			TDR_FormatString, body,
+			TDR_GadgetString, gadgets,
+			TDR_ImageType, ami_misc_req_image_tdr(image),
+			TDR_Window, win,
+			TDR_Timeout, timeout_secs,
+			TDR_Inactive, inactive,
+			TAG_DONE);
+	} else {
+		ret = TimedDosRequesterTags(
+			TDR_TitleString, title,
+			TDR_FormatString, body,
+			TDR_GadgetString, gadgets,
+			TDR_ImageType, ami_misc_req_image_tdr(image),
+			TDR_Window, win,
+			TAG_DONE);
+	}
+#else
+	(void)timeout_secs;
+	(void)inactive;
+	(void)image;
+	easyreq.es_StructSize = sizeof(struct EasyStruct);
+	easyreq.es_Flags = 0;
+	easyreq.es_Title = (char *)title;
+	easyreq.es_TextFormat = (char *)body;
+	easyreq.es_GadgetFormat = (char *)gadgets;
+	ret = EasyRequest(win, &easyreq, NULL);
+#endif
+	return ret;
+}
+
+static LONG ami_misc_req(const char *message, ULONG image)
+{
+	LONG ret;
+	struct gui_window *cur_gw;
+	char *local_msg;
+	char *local_title;
+	char *local_ok;
+
+	cur_gw = ami_gui_get_active_gw();
+
+	/* Requesters expect the system charset, not UTF-8. */
 	local_msg = ami_utf8_easy(message != NULL ? message : "");
 	local_title = ami_utf8_easy(messages_get("NetSurf"));
 	local_ok = ami_utf8_easy(messages_get("OK"));
 
 	NSLOG(netsurf, INFO, "%s", local_msg != NULL ? local_msg : message);
-#ifdef __amigaos4__
-	ret = TimedDosRequesterTags(
-		TDR_TitleString,  local_title != NULL ? local_title : messages_get("NetSurf"),
-		TDR_FormatString, local_msg != NULL ? local_msg : message,
-		TDR_GadgetString, local_ok != NULL ? local_ok : messages_get("OK"),
-		TDR_ImageType, type,
-		TDR_Window, cur_gw ? ami_gui_get_window(cur_gw) : NULL,
-		TAG_DONE);
-#else
-	easyreq.es_StructSize = sizeof(struct EasyStruct);
-	easyreq.es_Flags = 0;
-	easyreq.es_Title = local_title != NULL ? local_title : (char *)messages_get("NetSurf");
-	easyreq.es_TextFormat = local_msg != NULL ? local_msg : (char *)message;
-	easyreq.es_GadgetFormat = local_ok != NULL ? local_ok : (char *)messages_get("OK");
 
-	ret = EasyRequest(cur_gw ? ami_gui_get_window(cur_gw) : NULL, &easyreq, NULL);
-#endif
-	if (local_msg != NULL) {
+	ret = ami_misc_requester(
+			cur_gw ? ami_gui_get_window(cur_gw) : NULL,
+			local_title != NULL ? local_title : messages_get("NetSurf"),
+			local_msg != NULL ? local_msg : message,
+			local_ok != NULL ? local_ok : messages_get("OK"),
+			image);
+
+	if(local_msg != NULL)
 		free(local_msg);
-	}
-	if (local_title != NULL) {
+	if(local_title != NULL)
 		free(local_title);
-	}
-	if (local_ok != NULL) {
+	if(local_ok != NULL)
 		free(local_ok);
-	}
 	return ret;
 }
 
 void ami_misc_fatal_error(const char *message)
 {
-	ami_misc_req(message, TDRIMAGE_ERROR);
+	ami_misc_req(message, AMI_REQ_IMAGE_ERROR);
 }
 
 /* exported interface documented in amiga/misc.h */
@@ -101,6 +281,17 @@ nserror amiga_warn_user(const char *warning, const char *detail)
 	STRPTR bodytext;
 	const char *msg;
 
+	/*
+	 * Modal NoMemory requesters lock the UI for minutes while the
+	 * machine is already out of RAM (amigans OOM path). Log only.
+	 */
+	if (warning != NULL && strcmp(warning, "NoMemory") == 0) {
+		NSLOG(netsurf, WARNING, "NoMemory (non-modal)%s%s",
+		      (detail != NULL && detail[0] != '\0') ? ": " : "",
+		      detail != NULL ? detail : "");
+		return NSERROR_NOMEM;
+	}
+
 	/* messages_get is UTF-8; ami_misc_req converts once for intuition. */
 	msg = messages_get(warning);
 	bodytext = ASPrintf("%s\n%s",
@@ -108,47 +299,49 @@ nserror amiga_warn_user(const char *warning, const char *detail)
 			detail != NULL ? detail : "");
 
 	ami_misc_req(bodytext != NULL ? (const char *)bodytext : warning,
-			TDRIMAGE_WARNING);
+			AMI_REQ_IMAGE_WARNING);
 
-	if (bodytext != NULL) {
+	if(bodytext != NULL)
 		FreeVec(bodytext);
-	}
 
 	return NSERROR_OK;
 }
 
 int32 amiga_warn_user_multi(const char *body, const char *opt1, const char *opt2, struct Window *win)
 {
-	int res = 0;
+	int32 res;
+	char *local_text;
+	char *local_g1;
+	char *local_g2;
+	char *local_title;
+	char *local_gadgets;
 
-	char *utf8text = ami_utf8_easy(body);
-	char *utf8gadget1 = ami_utf8_easy(messages_get(opt1));
-	char *utf8gadget2 = ami_utf8_easy(messages_get(opt2));
-	char *utf8gadgets = ASPrintf("%s|%s", utf8gadget1, utf8gadget2);
-	free(utf8gadget1);
-	free(utf8gadget2);
+	res = 0;
+	local_text = ami_utf8_easy(body);
+	local_g1 = ami_utf8_easy(messages_get(opt1));
+	local_g2 = ami_utf8_easy(messages_get(opt2));
+	local_title = ami_utf8_easy(messages_get("NetSurf"));
+	local_gadgets = ASPrintf("%s|%s",
+			local_g1 != NULL ? local_g1 : "",
+			local_g2 != NULL ? local_g2 : "");
 
-#ifdef __amigaos4__
-	res = TimedDosRequesterTags(TDR_ImageType, TDRIMAGE_WARNING,
-		TDR_TitleString, messages_get("NetSurf"),
-		TDR_FormatString, utf8text,
-		TDR_GadgetString, utf8gadgets,
-		TDR_Window, win,
-		TAG_DONE);
-#else
-	struct EasyStruct easyreq = {
-		sizeof(struct EasyStruct),
-		0,
-		messages_get("NetSurf"),
-		utf8text,
-		utf8gadgets,
-	};
+	if(local_g1 != NULL)
+		free(local_g1);
+	if(local_g2 != NULL)
+		free(local_g2);
 
-	res = EasyRequest(win, &easyreq, NULL);
-#endif
+	res = ami_misc_requester(win,
+			local_title != NULL ? local_title : messages_get("NetSurf"),
+			local_text != NULL ? local_text : body,
+			local_gadgets != NULL ? local_gadgets : "OK|Cancel",
+			AMI_REQ_IMAGE_WARNING);
 
-	if(utf8text) free(utf8text);
-	if(utf8gadgets) FreeVec(utf8gadgets);
+	if(local_text != NULL)
+		free(local_text);
+	if(local_title != NULL)
+		free(local_title);
+	if(local_gadgets != NULL)
+		FreeVec(local_gadgets);
 
 	return res;
 }

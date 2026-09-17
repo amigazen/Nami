@@ -207,8 +207,8 @@ static void nsoption_validate(struct nsoption_s *opts, struct nsoption_s *defs)
 		opts[NSOPTION_max_retried_fetches].value.u = 1;
 	if (opts[NSOPTION_curl_fetch_timeout].value.u < 5)
 		opts[NSOPTION_curl_fetch_timeout].value.u = 5;
-	if (opts[NSOPTION_curl_fetch_timeout].value.u > 60)
-		opts[NSOPTION_curl_fetch_timeout].value.u = 60;
+	if (opts[NSOPTION_curl_fetch_timeout].value.u > 30)
+		opts[NSOPTION_curl_fetch_timeout].value.u = 30;
 	while (((opts[NSOPTION_curl_fetch_timeout].value.u *
 		 opts[NSOPTION_max_retried_fetches].value.u) > 60) &&
 	       (opts[NSOPTION_max_retried_fetches].value.u > 1))

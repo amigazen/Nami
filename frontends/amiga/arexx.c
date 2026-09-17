@@ -509,7 +509,7 @@ RXHOOKF(rx_pubscreen)
 
 	if(nsoption_charp(pubscreen_name) == NULL)
 	{
-		strcpy(result,"NetSurf");
+		strcpy(result,"Nami");
 	}
 	else
 	{

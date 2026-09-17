@@ -490,7 +490,7 @@ static bool fetch_about_about_handler(struct fetch_about_context *ctx)
 
 	res = fetch_about_ssenddataf(ctx,
 			"<html>\n<head>\n"
-			"<title>List of NetSurf pages</title>\n"
+			"<title>List of Nami pages</title>\n"
 			"<link rel=\"stylesheet\" type=\"text/css\" "
 			"href=\"resource:internal.css\">\n"
 			"</head>\n"

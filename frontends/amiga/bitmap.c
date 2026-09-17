@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <proto/exec.h>
+#include <proto/graphics.h>
 #ifdef __amigaos4__
 #include <graphics/blitattr.h>
 #include <graphics/composite.h>
@@ -42,7 +43,10 @@
 #define PDTA_DitherQuality	TAG_IGNORE
 #endif
 #ifndef PDTA_AlphaChannel
-#define PDTA_AlphaChannel	TAG_IGNORE
+#define PDTA_AlphaChannel	(DTA_Dummy + 256)
+#endif
+#ifndef PDTA_MaskPlane
+#define PDTA_MaskPlane		(DTA_Dummy + 258)
 #endif
 #ifndef PDTM_SCALE
 #define PDTM_SCALE		(PDTM_Dummy + 2)
@@ -148,6 +152,23 @@ void *amiga_bitmap_create(int width, int height, enum gui_bitmap_flags flags)
 {
 	struct bitmap *bitmap;
 
+	if (width <= 0 || height <= 0) {
+		return NULL;
+	}
+
+#ifndef __amigaos4__
+	if (ami_memory_under_pressure()) {
+		ami_memory_try_purge();
+	}
+	/* Hard ceiling — refuse absurd RGBA buffers even if dims uncapped. */
+	if ((ULONG)width * (ULONG)height > 640UL * 480UL) {
+		NSLOG(netsurf, WARNING,
+		      "amiga_bitmap_create: refuse %dx%d (>%lu pixels)",
+		      width, height, (unsigned long)(640UL * 480UL));
+		return NULL;
+	}
+#endif
+
 	if(pool_bitmap == NULL) pool_bitmap = ami_memory_itempool_create(sizeof(struct bitmap));
 
 	bitmap = ami_memory_itempool_alloc(pool_bitmap, sizeof(struct bitmap));
@@ -170,6 +191,20 @@ void *amiga_bitmap_create(int width, int height, enum gui_bitmap_flags flags)
 #endif
 	{
 		bitmap->pixdata = ami_memory_clear_alloc(bitmap->size, 0xff);
+		if (bitmap->pixdata == NULL) {
+#ifndef __amigaos4__
+			ami_memory_try_purge();
+			bitmap->pixdata = ami_memory_clear_alloc(bitmap->size, 0xff);
+#endif
+			if (bitmap->pixdata == NULL) {
+				ami_memory_itempool_free(pool_bitmap, bitmap,
+						sizeof(struct bitmap));
+				NSLOG(netsurf, WARNING,
+				      "amiga_bitmap_create: no memory for %dx%d RGBA",
+				      width, height);
+				return NULL;
+			}
+		}
 	}
 
 	bitmap->width = width;
@@ -384,6 +419,69 @@ bool amiga_bitmap_get_opaque(void *bitmap)
 	return bm->opaque;
 }
 
+/* exported function documented in amiga/bitmap.h */
+void amiga_bitmap_normalize_alpha(void *bitmap)
+{
+	struct bitmap *bm = bitmap;
+	ULONG *px;
+	ULONG npix;
+	ULONG i;
+	ULONG a;
+	ULONG rgb;
+	ULONG true_holes;
+	ULONG promoted;
+
+	assert(bitmap);
+	px = (ULONG *)amiga_bitmap_get_buffer(bm);
+	if (px == NULL || bm->width < 1 || bm->height < 1) {
+		return;
+	}
+
+	npix = (ULONG)bm->width * (ULONG)bm->height;
+	true_holes = 0;
+	promoted = 0;
+
+	/*
+	 * a==0 with rgb==0 (or magenta colour-key) is transparency.
+	 * Other zero/partial alpha with RGB is usually picture.datatype
+	 * noise on opaque PNGs — promote so Remap does not invent holes.
+	 */
+	for (i = 0; i < npix; i++) {
+		a = (px[i] >> 24) & 0xffUL;
+		rgb = px[i] & 0x00ffffffUL;
+		if (a == 0xffUL) {
+			continue;
+		}
+		if (a == 0 && (rgb == 0 || rgb == 0x00ff00ffUL)) {
+			px[i] = 0;
+			true_holes++;
+			continue;
+		}
+		px[i] |= 0xff000000UL;
+		promoted++;
+	}
+
+	if (true_holes == 0) {
+		bm->opaque = true;
+		if (promoted != 0) {
+			NSLOG(netsurf, INFO,
+			      "amiga_bitmap_normalize_alpha: forced opaque "
+			      "(%lux%lu, promoted=%lu)",
+			      (unsigned long)bm->width,
+			      (unsigned long)bm->height,
+			      (unsigned long)promoted);
+		}
+		return;
+	}
+
+	bm->opaque = false;
+	NSLOG(netsurf, INFO,
+	      "amiga_bitmap_normalize_alpha: keep alpha "
+	      "(%lux%lu, holes=%lu promoted=%lu)",
+	      (unsigned long)bm->width, (unsigned long)bm->height,
+	      (unsigned long)true_holes, (unsigned long)promoted);
+}
+
 /**
  * get width of a bitmap.
  */
@@ -556,6 +654,10 @@ struct bitmap *ami_bitmap_from_datatype(char *filename)
 
 /**
  * Blend soft AARRGGBB onto a NetSurf AABBGGRR background → opaque ARGB.
+ *
+ * Soft buffers are PMA, but some picture.datatype READPIXELARRAY results
+ * arrive as straight RGB with alpha 0 (amiga.com PNGs). Treating those as
+ * transparent and flattening onto white Remapped to pen 2 — white boxes.
  */
 static void ami_bitmap_preblend_argb(ULONG *dst, const ULONG *src,
 		ULONG npix, colour bg)
@@ -564,6 +666,7 @@ static void ami_bitmap_preblend_argb(ULONG *dst, const ULONG *src,
 	ULONG a, r, g, b;
 	ULONG br, bgc, bb;
 	ULONG inv;
+	ULONG out_r, out_g, out_b;
 
 	br = (ULONG)red_from_colour(bg);
 	bgc = (ULONG)green_from_colour(bg);
@@ -577,13 +680,28 @@ static void ami_bitmap_preblend_argb(ULONG *dst, const ULONG *src,
 		if (a == 0xffUL) {
 			dst[i] = src[i] | 0xff000000UL;
 		} else if (a == 0) {
-			dst[i] = 0xff000000UL | (br << 16) | (bgc << 8) | bb;
+			if ((r | g | b) != 0) {
+				/* Empty alpha but non-zero RGB — keep colour. */
+				dst[i] = 0xff000000UL | (r << 16) | (g << 8) | b;
+			} else {
+				dst[i] = 0xff000000UL | (br << 16) | (bgc << 8) | bb;
+			}
 		} else {
+			/* PMA: colour planes are already scaled by a. */
 			inv = 255UL - a;
-			r = (r * a + br * inv) / 255UL;
-			g = (g * a + bgc * inv) / 255UL;
-			b = (b * a + bb * inv) / 255UL;
-			dst[i] = 0xff000000UL | (r << 16) | (g << 8) | b;
+			out_r = r + (br * inv) / 255UL;
+			out_g = g + (bgc * inv) / 255UL;
+			out_b = b + (bb * inv) / 255UL;
+			if (out_r > 255UL) {
+				out_r = 255UL;
+			}
+			if (out_g > 255UL) {
+				out_g = 255UL;
+			}
+			if (out_b > 255UL) {
+				out_b = 255UL;
+			}
+			dst[i] = 0xff000000UL | (out_r << 16) | (out_g << 8) | out_b;
 		}
 	}
 }
@@ -630,6 +748,9 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 		return NULL;
 	}
 
+	/* Re-normalize in case the bitmap came from a path that skipped it. */
+	amiga_bitmap_normalize_alpha(bitmap);
+
 	/* Prefer a standard friend for AllocBitMap when the caller supplied one. */
 	if (friendbm != NULL &&
 	    (GetBitMapAttr(friendbm, BMA_FLAGS) & BMF_STANDARD) == 0) {
@@ -650,6 +771,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 	}
 
 	if ((!bitmap->opaque) && (bg != NS_TRANSPARENT)) {
+		/* Bake page background into Remap colours — opaque blit later. */
 		blend = (ULONG *)malloc((size_t)npix * sizeof(ULONG));
 		if (blend != NULL) {
 			ami_bitmap_preblend_argb(blend, (const ULONG *)src,
@@ -657,6 +779,65 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 			src = (UBYTE *)blend;
 			stride = sw * 4UL;
 		}
+	} else if (bitmap->opaque == false) {
+		/*
+		 * Real alpha, no plot bg: Remap opaque colour placeholders;
+		 * punch holes with a soft mask at blit time (no white bake).
+		 */
+		blend = (ULONG *)malloc((size_t)npix * sizeof(ULONG));
+		if (blend != NULL) {
+			const ULONG *sp;
+			ULONG i;
+			ULONG a, r, g, b;
+
+			sp = (const ULONG *)src;
+			for (i = 0; i < npix; i++) {
+				a = (sp[i] >> 24) & 0xffUL;
+				r = (sp[i] >> 16) & 0xffUL;
+				g = (sp[i] >> 8) & 0xffUL;
+				b = sp[i] & 0xffUL;
+				/* Transparent placeholders Remap as black; mask punches holes */
+				if (a == 0 && ((r | g | b) == 0 ||
+				    (r == 0xffUL && g == 0 && b == 0xffUL))) {
+					blend[i] = 0xff000000UL;
+				} else {
+					blend[i] = 0xff000000UL |
+						(r << 16) | (g << 8) | b;
+				}
+			}
+			src = (UBYTE *)blend;
+			stride = sw * 4UL;
+		}
+	} else {
+		/* Opaque: ensure alpha byte is 0xff for WRITEPIXELARRAY. */
+		blend = (ULONG *)malloc((size_t)npix * sizeof(ULONG));
+		if (blend != NULL) {
+			const ULONG *sp;
+			ULONG i;
+
+			sp = (const ULONG *)src;
+			for (i = 0; i < npix; i++) {
+				blend[i] = sp[i] | 0xff000000UL;
+			}
+			src = (UBYTE *)blend;
+			stride = sw * 4UL;
+		}
+	}
+
+	/* Log soft centre pixel so Remap-vs-decode failures are obvious. */
+	{
+		const ULONG *px;
+		ULONG mid;
+
+		px = (const ULONG *)src;
+		mid = 0;
+		if (npix > 0) {
+			mid = px[(npix / 2UL)];
+		}
+		NSLOG(netsurf, INFO,
+		      "ami_bitmap_get_picturedt: soft mid=0x%08lx opaque=%d",
+		      (unsigned long)mid,
+		      bitmap->opaque ? 1 : 0);
 	}
 
 	ditherq = 1;
@@ -699,8 +880,8 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 		bmhd->bmh_Width = (UWORD)sw;
 		bmhd->bmh_Height = (UWORD)sh;
 		bmhd->bmh_Depth = 32;
-		bmhd->bmh_Masking = (blend != NULL || bitmap->opaque)
-				? mskNone : mskHasAlpha;
+		/* Colours are always opaque for Remap; soft mask punches holes. */
+		bmhd->bmh_Masking = mskNone;
 	}
 
 	SetDTAttrs(dto, NULL, NULL,
@@ -767,13 +948,13 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 	}
 
 	depth = GetBitMapAttr(destbm, BMA_DEPTH);
+	/* Match plot buffer: STANDARD planar friend when available. */
 	owned = AllocBitMap((ULONG)width, (ULONG)height, depth,
 			BMF_CLEAR | BMF_STANDARD,
 			friendbm != NULL ? friendbm : destbm);
 	if (owned == NULL) {
 		owned = AllocBitMap((ULONG)width, (ULONG)height, depth,
-				BMF_CLEAR,
-				friendbm != NULL ? friendbm : destbm);
+				BMF_CLEAR, destbm);
 	}
 	if (owned == NULL) {
 		NSLOG(netsurf, WARNING,
@@ -785,12 +966,40 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 	}
 
 	BltBitMap(destbm, 0, 0, owned, 0, 0, width, height, 0xC0, 0xFF, NULL);
+	WaitBlit();
 
-	NSLOG(netsurf, INFO,
-	      "ami_bitmap_get_picturedt: ok %ldx%ld -> %dx%d depth=%lu",
-	      (long)sw, (long)sh, width, height, (unsigned long)depth);
+	{
+		struct RastPort trp;
+		LONG sample;
+
+		InitRastPort(&trp);
+		trp.BitMap = owned;
+		sample = ReadPixel(&trp, width / 2, height / 2);
+		NSLOG(netsurf, INFO,
+		      "ami_bitmap_get_picturedt: ok %ldx%ld -> %dx%d depth=%lu "
+		      "sample=%ld",
+		      (long)sw, (long)sh, width, height, (unsigned long)depth,
+		      (long)sample);
+	}
 
 	free(blend);
+
+	/*
+	 * History/tab thumbnails ask for tiny plot sizes (16→2, 64→10).
+	 * Pinning that native BitMap forces Remap churn and can leave a
+	 * wrong-depth cache when the soft buffer is later drawn full-size.
+	 * Bake pixels into owned and drop the DT object; caller frees BitMap.
+	 */
+	if (((ULONG)width * (ULONG)height * 8UL) <
+	    ((ULONG)bitmap->width * (ULONG)bitmap->height)) {
+		DisposeDTObject(dto);
+		NSLOG(netsurf, INFO,
+		      "ami_bitmap_get_picturedt: ephemeral %dx%d "
+		      "(intrinsic %ldx%ld)",
+		      width, height, (long)bitmap->width, (long)bitmap->height);
+		return owned;
+	}
+
 	bitmap->dto = dto;
 	bitmap->nativebm = owned;
 	bitmap->nativebmwidth = width;
@@ -1185,6 +1394,7 @@ PLANEPTR ami_bitmap_get_mask(struct bitmap *bitmap, int width,
 
 	bm_width = GetBitMapAttr(n_bm, BMA_WIDTH);
 	bpr = RASSIZE(bm_width, 1);
+	/* Blitter mask plane — AllocRaster is always Chip */
 	bitmap->native_mask = AllocRaster(bm_width, height);
 	if(bitmap->native_mask == NULL)
 		return NULL;
@@ -1245,6 +1455,10 @@ static nserror bitmap_render(struct bitmap *bitmap, struct hlcache_handle *conte
 			bitmap->width;
 
 	bm_globals = ami_plot_ra_alloc(bitmap->width, bitmap->height, true, false);
+	if (bm_globals == NULL) {
+		NSLOG(netsurf, WARNING, "bitmap_render: plot alloc failed");
+		return NSERROR_NOMEM;
+	}
 	ami_clearclipreg(bm_globals);
 
 	struct redraw_context ctx = {

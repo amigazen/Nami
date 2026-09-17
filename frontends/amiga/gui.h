@@ -293,6 +293,13 @@ int ami_gui_get_throbber_frame(struct gui_window *gw);
 void ami_gui_set_throbber_frame(struct gui_window *gw, int frame);
 
 /**
+ * LED / BoingBall throbber images (may be NULL if classes unavailable)
+ */
+Object *ami_gui2_get_throbber_led(struct gui_window_2 *gwin);
+Object *ami_gui2_get_throbber_boing(struct gui_window_2 *gwin);
+WORD *ami_gui2_get_throbber_led_vals(struct gui_window_2 *gwin);
+
+/**
  * Set throbbing status in gui_window
  */
 void ami_gui_set_throbbing(struct gui_window *gw, bool throbbing);

@@ -159,7 +159,10 @@ char *realpath(const char *path, char *resolved_path);
 
 #define HAVE_SCANDIR
 #if (defined(_WIN32) ||				\
-     defined(__serenity__))
+     defined(__serenity__) ||			\
+     defined(__amigaos4__) ||			\
+     defined(__AMIGA__))
+/* Amiga: PosixLib scandir is missing/unreliable; use utils/utils.c */
 #undef HAVE_SCANDIR
 #endif
 

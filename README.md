@@ -1,27 +1,15 @@
-NetSurf
+Nami
 =======
 
-This document should help point you at various useful bits of information.
+This is Nami, a port of NetSurf for Amiga.
 
 
-Building NetSurf
-----------------
-
-Read the [Quick Start](docs/quick-start.md) document for instructions.
 
 
-Creating a new port
--------------------
+Why Nami?
 
-Look at the existing front ends for example implementations.
-The framebuffer front end is simplest and most self-contained.
-Also, you can [contact the developers](https://www.netsurf-browser.org/contact/)
-for help.
+The word Nami means surf or wave in Japanese. You might be familiar with it from the character Nami Otohime in the One Piece manga. It also happens to be a nice contraction of 'Netsurf for AMIga' while avoiding the trap of calling all new Amiga apps 'AmiThis' or 'AmiThat' while very definitely 
 
+Why not just NetSurf?
 
-Further documentation
----------------------
-
-* [Developer documentation](https://www.netsurf-browser.org/developers/)
-* [Developer wiki](https://wiki.netsurf-browser.org/Documentation/)
-* [Code style guide](https://www.netsurf-browser.org/developers/StyleGuide.pdf)
+Nami is not just a port of NetSurf, but a fork. The NetSurf project moves very slowly

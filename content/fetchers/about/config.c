@@ -57,7 +57,7 @@ bool fetch_about_config_handler(struct fetch_about_context *ctx)
 
 	res = fetch_about_ssenddataf(ctx,
 			"<html>\n<head>\n"
-			"<title>NetSurf Browser Config</title>\n"
+			"<title>Nami Browser Config</title>\n"
 			"<link rel=\"stylesheet\" type=\"text/css\" "
 			"href=\"resource:internal.css\">\n"
 			"</head>\n"
@@ -65,7 +65,7 @@ bool fetch_about_config_handler(struct fetch_about_context *ctx)
 				"id =\"configlist\" "
 				"class=\"ns-even-bg ns-even-fg ns-border\" "
 				"style=\"overflow: hidden;\">\n"
-			"<h1 class=\"ns-border\">NetSurf Browser Config</h1>\n"
+			"<h1 class=\"ns-border\">Nami Browser Config</h1>\n"
 			"<table class=\"config\">\n"
 			"<tr><th>Option</th>"
 			"<th>Type</th>"

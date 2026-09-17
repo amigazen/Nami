@@ -55,7 +55,7 @@ bool fetch_about_choices_handler(struct fetch_about_context *ctx)
 		goto fetch_about_choices_handler_aborted;
 
 	slen = snprintf(buffer, sizeof buffer,
-		 "# Automatically generated current NetSurf browser Choices\n");
+		 "# Automatically generated current Nami browser Choices\n");
 
 	do {
 		res = nsoption_snoptionf(buffer + slen,

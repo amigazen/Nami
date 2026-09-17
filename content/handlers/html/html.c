@@ -278,6 +278,15 @@ static void html_box_convert_done(html_content *c, bool success)
 	html_proceed_to_done(c);
 
 	dom_node_unref(html);
+
+	/*
+	 * Deferred CSS may have been remembered while we were mid-build.
+	 * html_restyle_deferred_css() no-ops once READY/DONE so a late
+	 * flag cannot tear down a painted page (that froze Wikipedia).
+	 */
+	if (c->css_restyle_pending) {
+		html_restyle_deferred_css(c);
+	}
 }
 
 /* Documented in html_internal.h */
@@ -352,15 +361,9 @@ void html_finish_conversion(html_content *htmlc)
 		return;
 	}
 
-	/* If we already have a selection context, then we have already
-	 * "finished" conversion.  We can get here twice if e.g. some JS
-	 * adds a new stylesheet, and the stylesheet gets added after
-	 * the HTML content is initially finished.
-	 *
-	 * If we didn't do this, the HTML content would try to rebuild the
-	 * box tree for the html content when this new stylesheet is ready.
-	 * NetSurf has no concept of dynamically changing documents, so this
-	 * would break badly.
+	/*
+	 * Initial conversion only — progressive author CSS uses
+	 * html_restyle_deferred_css() which clears select_ctx first.
 	 */
 	if (htmlc->select_ctx != NULL) {
 		NSLOG(netsurf, INFO,
@@ -478,6 +481,8 @@ html_create_html_data(html_content *c, const http_parameter *params)
 	c->background_colour = NS_TRANSPARENT;
 	c->stylesheet_count = 0;
 	c->stylesheets = NULL;
+	c->author_css_pending = 0;
+	c->css_restyle_pending = false;
 	c->select_ctx = NULL;
 	c->media.type = CSS_MEDIA_SCREEN;
 	c->universal = NULL;
@@ -1193,6 +1198,19 @@ static void html_free_layout(html_content *htmlc)
 		 */
 		talloc_free(htmlc->bctx);
 	}
+}
+
+/**
+ * Deferred author CSS used to rebuild layout after first paint; that
+ * freezes classic Amiga on large sheets.  Remote author CSS is no longer
+ * fetched — keep this as a no-op safety net.
+ */
+void html_restyle_deferred_css(html_content *htmlc)
+{
+	if (htmlc == NULL) {
+		return;
+	}
+	htmlc->css_restyle_pending = false;
 }
 
 /**

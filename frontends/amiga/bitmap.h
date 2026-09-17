@@ -184,5 +184,11 @@ void amiga_bitmap_set_opaque(void *bitmap, bool opaque);
  */
 bool amiga_bitmap_get_opaque(void *bitmap);
 
+/**
+ * Fix DT soft-buffer alpha: all-0xff → opaque; all-0 with RGB → force opaque;
+ * otherwise keep as non-opaque for mask blits.
+ */
+void amiga_bitmap_normalize_alpha(void *bitmap);
+
 
 #endif

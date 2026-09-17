@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
 #include <proto/intuition.h>
@@ -145,6 +146,7 @@ enum
 	GID_OPTS_TAB_2,
 	GID_OPTS_TAB_ALWAYS,
 	GID_OPTS_TAB_CLOSE,
+	GID_OPTS_UI_STYLE,
 	GID_OPTS_SEARCH_PROV,
 	GID_OPTS_CLIPBOARD,
 	GID_OPTS_SELECTMENU,
@@ -218,9 +220,12 @@ enum
 #define OPTS_MAX_TABS 10
 #define OPTS_MAX_SCREEN 4
 #define OPTS_MAX_THEMEPAGE 3
+#define OPTS_MAX_GUITHEME 16
 #define OPTS_MAX_PROXY 5
 #define OPTS_MAX_NATIVEBM 4
 #define OPTS_MAX_DITHER 4
+#define OPTS_MAX_UISTYLE 3
+#define AMI_GUI_THEMES_DRAWER "PROGDIR:Resources/Themes"
 
 enum {
 	NSA_LIST_CLICKTAB = 0,
@@ -236,11 +241,13 @@ struct ami_gui_opts_window {
 	struct List clicktablist;
 	struct List screenoptslist;
 	struct List pagethemeoptslist;
+	struct List guithemeoptslist;
 	struct List proxyoptslist;
 	struct List nativebmoptslist;
 	struct List ditheroptslist;
 	struct List fontoptslist;
 	struct List fontenginelist;
+	struct List uistylelist;
 #endif
 	int websearch_idx;
 };
@@ -293,14 +300,134 @@ static struct ami_gui_opts_window *gow = NULL;
 static CONST_STRPTR tabs[OPTS_MAX_TABS];
 static STRPTR screenopts[OPTS_MAX_SCREEN];
 static CONST_STRPTR pagethemeopts[OPTS_MAX_THEMEPAGE];
+static CONST_STRPTR guithemeopts[OPTS_MAX_GUITHEME + 1];
+static char *guithemepaths[OPTS_MAX_GUITHEME];
+static int guitheme_count;
+static int guitheme_selected;
 static CONST_STRPTR proxyopts[OPTS_MAX_PROXY];
 static CONST_STRPTR nativebmopts[OPTS_MAX_NATIVEBM];
 static CONST_STRPTR ditheropts[OPTS_MAX_DITHER];
+static CONST_STRPTR uistyleopts[OPTS_MAX_UISTYLE];
 static CONST_STRPTR fontopts[6];
 static CONST_STRPTR fontengines[5];
 static CONST_STRPTR gadlab[OPTS_LAST];
 static CONST_STRPTR helphints[OPTS_LAST];
 static struct List *websearch_list;
+
+/** Free names/paths from the last Themes drawer scan. */
+static void ami_gui_opts_themes_free(void)
+{
+	int i;
+
+	for(i = 0; i < guitheme_count; i++) {
+		if(guithemeopts[i] != NULL)
+			free((APTR)guithemeopts[i]);
+		if(guithemepaths[i] != NULL)
+			free(guithemepaths[i]);
+		guithemeopts[i] = NULL;
+		guithemepaths[i] = NULL;
+	}
+	guitheme_count = 0;
+	guitheme_selected = 0;
+	guithemeopts[0] = NULL;
+}
+
+/**
+ * List PROGDIR:Resources/Themes drawers that contain a Theme file.
+ * Labels are the drawer names (Default, AISSClassic, AISS, ...).
+ */
+static void ami_gui_opts_themes_scan(void)
+{
+	BPTR lock;
+	BPTR oldcd;
+	BPTR tlock;
+	struct FileInfoBlock *fib;
+	char themefile[256];
+	char fullpath[256];
+	const char *cur;
+	const char *curleaf;
+	int i;
+
+	ami_gui_opts_themes_free();
+
+	lock = Lock(AMI_GUI_THEMES_DRAWER, ACCESS_READ);
+	if(lock == 0)
+		goto ensure_default;
+
+	fib = AllocDosObject(DOS_FIB, NULL);
+	if(fib == NULL) {
+		UnLock(lock);
+		goto ensure_default;
+	}
+
+	oldcd = CurrentDir(lock);
+	if(Examine(lock, fib)) {
+		while((ExNext(lock, fib) != 0) &&
+		      (guitheme_count < OPTS_MAX_GUITHEME)) {
+			if(fib->fib_DirEntryType <= 0)
+				continue;
+			if(fib->fib_FileName[0] == '.')
+				continue;
+
+			strcpy(themefile, fib->fib_FileName);
+			AddPart(themefile, "Theme", sizeof(themefile));
+			tlock = Lock(themefile, ACCESS_READ);
+			if(tlock == 0)
+				continue;
+			UnLock(tlock);
+
+			strcpy(fullpath, AMI_GUI_THEMES_DRAWER);
+			AddPart(fullpath, fib->fib_FileName, sizeof(fullpath));
+
+			guithemeopts[guitheme_count] = strdup(fib->fib_FileName);
+			guithemepaths[guitheme_count] = strdup(fullpath);
+			if((guithemeopts[guitheme_count] == NULL) ||
+			   (guithemepaths[guitheme_count] == NULL)) {
+				if(guithemeopts[guitheme_count] != NULL)
+					free((APTR)guithemeopts[guitheme_count]);
+				if(guithemepaths[guitheme_count] != NULL)
+					free(guithemepaths[guitheme_count]);
+				guithemeopts[guitheme_count] = NULL;
+				guithemepaths[guitheme_count] = NULL;
+				break;
+			}
+			guitheme_count++;
+		}
+	}
+	CurrentDir(oldcd);
+	FreeDosObject(DOS_FIB, fib);
+	UnLock(lock);
+
+ensure_default:
+	guithemeopts[guitheme_count] = NULL;
+
+	if(guitheme_count == 0) {
+		guithemeopts[0] = strdup("Default");
+		guithemepaths[0] = strdup("PROGDIR:Resources/Themes/Default");
+		if((guithemeopts[0] != NULL) && (guithemepaths[0] != NULL)) {
+			guitheme_count = 1;
+			guithemeopts[1] = NULL;
+		}
+	}
+
+	cur = nsoption_charp(theme);
+	curleaf = NULL;
+	if((cur != NULL) && (cur[0] != '\0'))
+		curleaf = FilePart((STRPTR)cur);
+
+	guitheme_selected = 0;
+	for(i = 0; i < guitheme_count; i++) {
+		if((cur != NULL) && (strcasecmp(guithemepaths[i], cur) == 0)) {
+			guitheme_selected = i;
+			break;
+		}
+		if((curleaf != NULL) &&
+		   (strcasecmp(guithemeopts[i], curleaf) == 0)) {
+			guitheme_selected = i;
+			break;
+		}
+	}
+}
 
 #ifndef __amigaos4__
 static void ami_gui_opts_array_to_list(struct List *list, const char *array[], int type)
@@ -403,6 +530,9 @@ static void ami_gui_opts_setup(struct ami_gui_opts_window *gow)
 	pagethemeopts[1] = (char *)ami_utf8_easy((char *)messages_get("Dark"));
 	pagethemeopts[2] = NULL;
 
+	/* Named drawers under PROGDIR:Resources/Themes (Default, AISSClassic, ...) */
+	ami_gui_opts_themes_scan();
+
 	proxyopts[0] = (char *)ami_utf8_easy((char *)messages_get("ProxyNone"));
 	proxyopts[1] = (char *)ami_utf8_easy((char *)messages_get("ProxyNoAuth"));
 	proxyopts[2] = (char *)ami_utf8_easy((char *)messages_get("ProxyBasic"));
@@ -413,6 +543,10 @@ static void ami_gui_opts_setup(struct ami_gui_opts_window *gow)
 	nativebmopts[1] = (char *)ami_utf8_easy((char *)messages_get("Scaled"));
 	nativebmopts[2] = (char *)ami_utf8_easy((char *)messages_get("All"));
 	nativebmopts[3] = NULL;
+
+	uistyleopts[0] = (char *)ami_utf8_easy((char *)messages_get("UIStyleNetSurf"));
+	uistyleopts[1] = (char *)ami_utf8_easy((char *)messages_get("UIStyleNami"));
+	uistyleopts[2] = NULL;
 
 	ditheropts[0] = (char *)ami_utf8_easy((char *)messages_get("Low"));
 	ditheropts[1] = (char *)ami_utf8_easy((char *)messages_get("Medium"));
@@ -479,6 +613,7 @@ static void ami_gui_opts_setup(struct ami_gui_opts_window *gow)
 	gadlab[GID_OPTS_TAB_2] = (char *)ami_utf8_easy((char *)messages_get("TabMiddle"));
 	gadlab[GID_OPTS_TAB_ALWAYS] = (char *)ami_utf8_easy((char *)messages_get("TabAlways"));
 	gadlab[GID_OPTS_TAB_CLOSE] = (char *)ami_utf8_easy((char *)messages_get("TabClose"));
+	gadlab[GID_OPTS_UI_STYLE] = (char *)ami_utf8_easy((char *)messages_get("UIStyle"));
 	gadlab[GID_OPTS_SEARCH_PROV] = (char *)ami_utf8_easy((char *)messages_get("SearchProvider"));
 	gadlab[GID_OPTS_CLIPBOARD] = (char *)ami_utf8_easy((char *)messages_get("ClipboardUTF8"));
 	gadlab[GID_OPTS_SELECTMENU] = (char *)ami_utf8_easy((char *)messages_get("PopupMenu"));
@@ -550,9 +685,11 @@ static void ami_gui_opts_setup(struct ami_gui_opts_window *gow)
 	ami_gui_opts_array_to_list(&gow->clicktablist, tabs, NSA_LIST_CLICKTAB);
 	ami_gui_opts_array_to_list(&gow->screenoptslist, screenopts, NSA_LIST_RADIO);
 	ami_gui_opts_array_to_list(&gow->pagethemeoptslist, pagethemeopts, NSA_LIST_CHOOSER);
+	ami_gui_opts_array_to_list(&gow->guithemeoptslist, guithemeopts, NSA_LIST_CHOOSER);
 	ami_gui_opts_array_to_list(&gow->proxyoptslist, proxyopts, NSA_LIST_CHOOSER);
 	ami_gui_opts_array_to_list(&gow->nativebmoptslist, nativebmopts, NSA_LIST_CHOOSER);
 	ami_gui_opts_array_to_list(&gow->ditheroptslist, ditheropts, NSA_LIST_CHOOSER);
+	ami_gui_opts_array_to_list(&gow->uistylelist, uistyleopts, NSA_LIST_CHOOSER);
 	ami_gui_opts_array_to_list(&gow->fontoptslist, fontopts, NSA_LIST_CHOOSER);
 	ami_gui_opts_array_to_list(&gow->fontenginelist, fontengines, NSA_LIST_CHOOSER);
 #endif
@@ -579,15 +716,21 @@ static void ami_gui_opts_free(struct ami_gui_opts_window *gow)
 	for(i = 0; i < OPTS_MAX_NATIVEBM; i++)
 		if(nativebmopts[i]) free((APTR)nativebmopts[i]);
 
+	for(i = 0; i < OPTS_MAX_UISTYLE; i++)
+		if(uistyleopts[i]) free((APTR)uistyleopts[i]);
+
 	ami_gui_opts_websearch_free(websearch_list);
+	ami_gui_opts_themes_free();
 
 #ifndef __amigaos4__
 	ami_gui_opts_free_list(&gow->clicktablist, NSA_LIST_CLICKTAB);
 	ami_gui_opts_free_list(&gow->screenoptslist, NSA_LIST_RADIO);
 	ami_gui_opts_free_list(&gow->pagethemeoptslist, NSA_LIST_CHOOSER);
+	ami_gui_opts_free_list(&gow->guithemeoptslist, NSA_LIST_CHOOSER);
 	ami_gui_opts_free_list(&gow->proxyoptslist, NSA_LIST_CHOOSER);
 	ami_gui_opts_free_list(&gow->nativebmoptslist, NSA_LIST_CHOOSER);
 	ami_gui_opts_free_list(&gow->ditheroptslist, NSA_LIST_CHOOSER);
+	ami_gui_opts_free_list(&gow->uistylelist, NSA_LIST_CHOOSER);
 	ami_gui_opts_free_list(&gow->fontoptslist, NSA_LIST_CHOOSER);
 	ami_gui_opts_free_list(&gow->fontenginelist, NSA_LIST_CHOOSER);
 #endif
@@ -616,11 +759,8 @@ void ami_gui_opts_open(void)
 		return;
 	}
 
-#ifdef __amigaos4__
-	if(LIB_IS_AT_LEAST((struct Library *)IntuitionBase, 53, 42)) ptr_disable = TRUE;
-#else
+	/* Custom theme mouse pointers removed — always system / Preferences. */
 	ptr_disable = TRUE;
-#endif
 
 	if(nsoption_charp(pubscreen_name))
 	{
@@ -949,14 +1089,17 @@ void ami_gui_opts_open(void)
 									LAYOUT_SpaceOuter, TRUE,
 									LAYOUT_BevelStyle, BVS_GROUP, 
 									LAYOUT_Label, gadlab[GRP_OPTS_THEME],
-									LAYOUT_AddChild, gow->objects[GID_OPTS_THEME] = GetFileObj,
+									LAYOUT_AddChild, gow->objects[GID_OPTS_THEME] = ChooserObj,
 										GA_ID, GID_OPTS_THEME,
 										GA_RelVerify, TRUE,
-										GETFILE_Drawer, nsoption_charp(theme),
-										GETFILE_DrawersOnly, TRUE,
-										GETFILE_ReadOnly, TRUE,
-										GETFILE_FullFileExpand, FALSE,
-									GetFileEnd,
+										CHOOSER_PopUp, TRUE,
+#ifdef __amigaos4__
+										CHOOSER_LabelArray, guithemeopts,
+#else
+										CHOOSER_Labels, &gow->guithemeoptslist,
+#endif
+										CHOOSER_Selected, guitheme_selected,
+									ChooserEnd,
 									CHILD_Label, LabelObj,
 										LABEL_Text, gadlab[GID_OPTS_THEME],
 									LabelEnd,
@@ -1457,6 +1600,22 @@ void ami_gui_opts_open(void)
          	           						GA_Text, gadlab[GID_OPTS_TAB_CLOSE],
          	           						GA_Selected, nsoption_bool(tab_close_warn),
             	    					CheckBoxEnd,
+										LAYOUT_AddChild, gow->objects[GID_OPTS_UI_STYLE] = ChooserObj,
+											GA_ID, GID_OPTS_UI_STYLE,
+											GA_RelVerify, TRUE,
+											GA_HintInfo, messages_get("UIStyleNote"),
+											CHOOSER_PopUp, TRUE,
+#ifdef __amigaos4__
+											CHOOSER_LabelArray, uistyleopts,
+#else
+											CHOOSER_Labels, &gow->uistylelist,
+#endif
+											CHOOSER_Selected,
+												(nsoption_int(ui_style) == 1) ? 1 : 0,
+										ChooserEnd,
+										CHILD_Label, LabelObj,
+											LABEL_Text, gadlab[GID_OPTS_UI_STYLE],
+										LabelEnd,
 									LayoutEnd, // tabbed browsing
 								LayoutEnd,
 							LayoutEnd, // page vgroup
@@ -1780,6 +1939,7 @@ void ami_gui_opts_open(void)
 static void ami_gui_opts_use(bool save)
 {
 	ULONG data, id = 0;
+	int theme_idx;
 	struct Node *tmp_node = NULL;
 	struct TextAttr *tattr;
 	char *dot;
@@ -1884,8 +2044,12 @@ static void ami_gui_opts_use(bool save)
 		nsoption_set_int(screen_compositing, -1);
 	}
 	
-	GetAttr(GETFILE_Drawer,gow->objects[GID_OPTS_THEME],(ULONG *)&data);
-	nsoption_set_charp(theme, (char *)strdup((char *)data));
+	GetAttr(CHOOSER_Selected, gow->objects[GID_OPTS_THEME], (ULONG *)&data);
+	theme_idx = (int)data;
+	if((theme_idx >= 0) && (theme_idx < guitheme_count) &&
+	   (guithemepaths[theme_idx] != NULL)) {
+		nsoption_set_charp(theme, (char *)strdup(guithemepaths[theme_idx]));
+	}
 
 	GetAttr(CHOOSER_Selected,gow->objects[GID_OPTS_THEMEPAGE],(ULONG *)&data);
 	if(data) {
@@ -2076,6 +2240,12 @@ static void ami_gui_opts_use(bool save)
 
 	if(old_tab_always_show != nsoption_bool(tab_always_show))
 		ami_gui_tabs_toggle_all();
+
+	GetAttr(CHOOSER_Selected, gow->objects[GID_OPTS_UI_STYLE], (ULONG *)&data);
+	if(data == 1)
+		nsoption_set_int(ui_style, 1);
+	else
+		nsoption_set_int(ui_style, 0);
 	
 #ifdef __amigaos4__
 	GetAttr(CHOOSER_SelectedNode, gow->objects[GID_OPTS_SEARCH_PROV],(ULONG *)&tmp_node);
@@ -2301,11 +2471,6 @@ static BOOL ami_gui_opts_event(void *w)
 					case GID_OPTS_SCREENMODE:
 						IDoMethod(gow->objects[GID_OPTS_SCREENMODE],
 						GSM_REQUEST,gow->win);
-					break;
-
-					case GID_OPTS_THEME:
-						IDoMethod(gow->objects[GID_OPTS_THEME],
-						GFILE_REQUEST,gow->win);
 					break;
 
 					case GID_OPTS_PROXY:

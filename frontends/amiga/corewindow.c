@@ -941,7 +941,10 @@ nserror ami_corewindow_init(struct ami_corewindow *ami_cw)
 
 	/* allocate drawing area etc */
 	ami_cw->gg = ami_plot_ra_alloc(100, 100, false, true); // force tiles to save memory
-
+	if (ami_cw->gg == NULL) {
+		amiga_warn_user("NoMemory", "");
+		return NSERROR_NOMEM;
+	}
 	ami_cw->deferred_rects = NewObjList();
 	ami_cw->deferred_rects_pool = ami_memory_itempool_create(sizeof(struct rect));
 
@@ -988,6 +991,7 @@ nserror ami_corewindow_fini(struct ami_corewindow *ami_cw)
 {
 	/* remove any pending redraws */
 	ami_schedule(-1, ami_cw_redraw_cb, ami_cw);
+	ami_cw_redraw_queue(ami_cw, false);
 	FreeObjList(ami_cw->deferred_rects);
 	ami_memory_itempool_delete(ami_cw->deferred_rects_pool);
 

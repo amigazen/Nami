@@ -156,6 +156,7 @@ build/vbcc-os3/frontends_amiga_print.o
 build/vbcc-os3/frontends_amiga_theme.o
 build/vbcc-os3/frontends_amiga_drag.o
 build/vbcc-os3/frontends_amiga_icon.o
+build/vbcc-os3/frontends_amiga_ico.o
 build/vbcc-os3/frontends_amiga_libs.o
 build/vbcc-os3/frontends_amiga_datatypes.o
 build/vbcc-os3/frontends_amiga_dt_picture.o

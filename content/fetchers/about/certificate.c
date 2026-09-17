@@ -1209,7 +1209,7 @@ bool fetch_about_certificate_handler(struct fetch_about_context *ctx)
 	/* page head */
 	res = fetch_about_ssenddataf(ctx,
 			"<html>\n<head>\n"
-			"<title>NetSurf Browser Certificate Viewer</title>\n"
+			"<title>Nami Browser Certificate Viewer</title>\n"
 			"<link rel=\"stylesheet\" type=\"text/css\" "
 					"href=\"resource:internal.css\">\n"
 			"</head>\n"

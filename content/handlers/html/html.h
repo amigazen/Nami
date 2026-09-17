@@ -60,6 +60,11 @@ struct html_stylesheet {
 	struct hlcache_handle *sheet;
 	bool modified;
 	bool unused;
+	/**
+	 * Remote author stylesheet may complete after first paint.
+	 * When set, fetch does not block html_can_begin_conversion.
+	 */
+	bool defer_ok;
 };
 
 

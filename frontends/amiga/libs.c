@@ -273,6 +273,11 @@ AMINS_CLASS_STRUCT(Window);
 struct Library *TextFieldBase = NULL;
 Class *TextEditorClass = NULL;
 
+/* Optional LED / BoingBall (public class names; no GetClass required) */
+struct Library *PenMapBase = NULL;
+struct Library *LedBase = NULL;
+struct Library *BoingBallBase = NULL;
+
 
 bool ami_libs_open(void)
 {
@@ -370,7 +375,7 @@ bool ami_libs_open(void)
 	AMINS_CLASS_OPEN("window.class",                 42, Window,        WINDOW,        false)
 
 	/* Optional ReAction classes for prefs/chrome UI (not HTML form controls). */
-	AMINS_CLASS_OPEN_OPT("requester.class",            41, Requester,     REQUESTER)
+	AMINS_CLASS_OPEN_OPT("requester.class",            47, Requester,     REQUESTER)
 	AMINS_CLASS_OPEN_OPT("gadgets/listview.gadget",    40, ListView,      LISTVIEW)
 	AMINS_CLASS_OPEN_OPT("gadgets/virtual.gadget",     41, Virtual,       VIRTUAL)
 #ifdef __amigaos4__
@@ -415,6 +420,32 @@ bool ami_libs_open(void)
 		NSLOG(netsurf, INFO, "Failed to open gadgets/texteditor.gadget v41 (optional)");
 	}
 #endif
+
+	/* LED blink + BoingBall spinner (optional; theme filmstrip is fallback) */
+	NSLOG(netsurf, INFO, "Opening images/penmap.image v47 (optional)");
+	PenMapBase = OpenLibrary("images/penmap.image", 47);
+	if(PenMapBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      PenMapBase->lib_Version, PenMapBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open images/penmap.image v47 (optional)");
+	}
+	NSLOG(netsurf, INFO, "Opening images/led.image v47 (optional)");
+	LedBase = OpenLibrary("images/led.image", 47);
+	if(LedBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      LedBase->lib_Version, LedBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open images/led.image v47 (optional)");
+	}
+	NSLOG(netsurf, INFO, "Opening images/boingball.image v47 (optional)");
+	BoingBallBase = OpenLibrary("images/boingball.image", 47);
+	if(BoingBallBase != NULL) {
+		NSLOG(netsurf, INFO, " -> opened v%d.%d",
+		      BoingBallBase->lib_Version, BoingBallBase->lib_Revision);
+	} else {
+		NSLOG(netsurf, INFO, "Failed to open images/boingball.image v47 (optional)");
+	}
 
 #ifndef __amigaos4__
 	/* BOOPSI classes only required prior to OS4 */
@@ -466,6 +497,19 @@ void ami_libs_close(void)
 #endif
 	TextFieldBase = NULL;
 	TextEditorClass = NULL;
+
+	if(BoingBallBase != NULL) {
+		CloseLibrary(BoingBallBase);
+		BoingBallBase = NULL;
+	}
+	if(LedBase != NULL) {
+		CloseLibrary(LedBase);
+		LedBase = NULL;
+	}
+	if(PenMapBase != NULL) {
+		CloseLibrary(PenMapBase);
+		PenMapBase = NULL;
+	}
 
 	/* Libraries */
 	AMINS_LIB_CLOSE(Codesets)

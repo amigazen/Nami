@@ -21,6 +21,8 @@
 
 #include <stdbool.h>
 
+struct RastPort;
+
 /**
  * Initialise the optional ttengine.library font backend.
  *
@@ -34,5 +36,13 @@ void ami_font_ttengine_fini(void);
 
 /** true when ttengine.library was opened successfully. */
 bool ami_font_ttengine_available(void);
+
+/** true when the TTEngine backend is the active page font engine. */
+bool ami_font_ttengine_active(void);
+
+/**
+ * Release TTEngine per-RastPort state before disposing a plot RastPort.
+ */
+void ami_font_ttengine_done_rastport(struct RastPort *rp);
 
 #endif

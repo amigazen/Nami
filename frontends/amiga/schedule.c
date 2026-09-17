@@ -36,7 +36,7 @@
 #include "amiga/memory.h"
 #include "amiga/schedule.h"
 
-/* TimeRequest must be first — used as IORequest for timer.device.
+/* TimeRequest must be first â€” used as IORequest for timer.device.
  * schedule_node is a separate list node (cannot reuse mn_Node). */
 struct nscallback
 {
@@ -342,7 +342,7 @@ nserror ami_schedule(int t, void (*callback)(void *p), void *p)
 	if (schedule_msgport == NULL) {
 		return NSERROR_NOMEM;
 	}
-	nscb = AllocVec(sizeof(struct nscallback), MEMF_PUBLIC | MEMF_CLEAR);
+	nscb = ami_memory_allocvec(sizeof(struct nscallback), MEMF_CLEAR);
 	if (nscb == NULL) {
 		return NSERROR_NOMEM;
 	}

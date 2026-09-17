@@ -40,9 +40,8 @@ void ami_update_throbber(struct gui_window_2 *g,bool redraw);
 
 void ami_init_mouse_pointers(void);
 void ami_mouse_pointers_free(void);
-/* Use the following ONLY if nothing other than the Intuition window pointer is available,
- * and ALWAYS in preference to SetWindowPointer(), as it features more pointers and uses
- * the correct ones specified in user preferences. */
+/* Prefer this over SetWindowPointer(): maps NetSurf shapes to WA_PointerType
+ * (intuition 47.34+) or WA_BusyPointer / Preferences default on older ROMs. */
 void ami_update_pointer(struct Window *win, gui_pointer_shape shape); 
 
 void gui_window_start_throbber(struct gui_window *g);

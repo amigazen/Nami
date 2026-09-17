@@ -27,6 +27,7 @@
 #include <proto/datatypes.h>
 #include <proto/dos.h>
 #include <proto/exec.h>
+#include <proto/graphics.h>
 #include <proto/intuition.h>
 #include <datatypes/animationclass.h>
 #include <datatypes/pictureclass.h>
@@ -62,7 +63,9 @@ typedef struct amiga_dt_anim_content {
 	int h;
 } amiga_dt_anim_content;
 
+#ifdef __amigaos4__
 static APTR ami_colormap_to_clut(struct ColorMap *cmap);
+#endif
 
 static nserror amiga_dt_anim_create(const content_handler *handler,
 		lwc_string *imime_type, const struct http_parameter *params,
@@ -175,7 +178,9 @@ static bool amiga_dt_anim_convert(struct content *c)
 	struct BitMapHeader *bmh;
 	unsigned int bm_flags = BITMAP_OPAQUE;
 	struct adtFrame adt_frame;
+#ifdef __amigaos4__
 	APTR clut;
+#endif
 
 	data = content__get_source_data(c, &size);
 
@@ -203,8 +208,8 @@ static bool amiga_dt_anim_convert(struct content *c)
 			adt_frame.alf_TimeStamp = 0;
 			IDoMethodA(plugin->dto, (Msg)&adt_frame);
 
-			clut = ami_colormap_to_clut(adt_frame.alf_CMap);
 #ifdef __amigaos4__
+			clut = ami_colormap_to_clut(adt_frame.alf_CMap);
 			BltBitMapTags(
 				BLITA_Width, width,
 				BLITA_Height, height,
@@ -215,13 +220,36 @@ static bool amiga_dt_anim_convert(struct content *c)
 				BLITA_DestBytesPerRow, width,
 				BLITA_CLUT, clut,
 				TAG_DONE);
+			free(clut);
 #else
-#warning FIXME: Need to use a different blitter function for OS3!
-#endif
-				free(clut);
+			/* OS3 has no BltBitMapTags RGB24+CLUT — expand via ReadPixel */
+			if((adt_frame.alf_BitMap != NULL) &&
+			   (adt_frame.alf_CMap != NULL) &&
+			   (bm_buffer != NULL)) {
+				struct RastPort rp;
+				ULONG rgb[3];
+				ULONG *dst;
+				LONG px;
+				LONG py;
+				ULONG pen;
 
-				adt_frame.MethodID = ADTM_UNLOADFRAME;
-				IDoMethodA(plugin->dto, (Msg)&adt_frame);
+				InitRastPort(&rp);
+				rp.BitMap = adt_frame.alf_BitMap;
+				dst = (ULONG *)bm_buffer;
+				for(py = 0; py < (LONG)height; py++) {
+					for(px = 0; px < (LONG)width; px++) {
+						pen = (ULONG)ReadPixel(&rp, px, py);
+						GetRGB32(adt_frame.alf_CMap, pen, 1, rgb);
+						*dst++ = 0xff000000UL |
+							((rgb[0] >> 8) & 0x00ff0000UL) |
+							((rgb[1] >> 16) & 0x0000ff00UL) |
+							((rgb[2] >> 24) & 0x000000ffUL);
+					}
+				}
+			}
+#endif
+			adt_frame.MethodID = ADTM_UNLOADFRAME;
+			IDoMethodA(plugin->dto, (Msg)&adt_frame);
 		}
 		else return false;
 	}
@@ -346,6 +374,7 @@ static content_type amiga_dt_anim_content_type(void)
 	return CONTENT_IMAGE;
 }
 
+#ifdef __amigaos4__
 static APTR ami_colormap_to_clut(struct ColorMap *cmap)
 {
 	int i;
@@ -368,5 +397,6 @@ static APTR ami_colormap_to_clut(struct ColorMap *cmap)
 
 	return clut;
 }
+#endif
 
 #endif

@@ -114,28 +114,33 @@
 (set #old-hotlist (tackon @default-dest "Resources/Hotlist"))
 (set #old-hotlist-exist (exists #old-hotlist))
 (set #aiss-theme "")
+(set #theme-default 0)
 
 (if (= #options-exist 0)
 	(
 		(if (exists "TBimages:" (noreq))
-			(set #aiss-theme "AISS")
+			(
+				(set #aiss-theme "AISSClassic")
+				(set #theme-default 1)
+			)
 		)
 
 		(set #themename
    			(askchoice
   				(prompt "Please select theme")
- 	      		(help "AISS theme requires AISS (and def_pointers for 32-bit "
-						"pointers), and will only be shown as an option if "
-						"AISS is installed.\n\n"
+ 	      		(help "AISSClassic uses Mason's AISS Classic toolbar images "
+						"(TBImages:). It is only listed if AISS Classic is "
+						"installed.\n\n"
+						"Default needs no extra packages.\n\n"
 						@askchoice-help)
 				(choices "Default" #aiss-theme)
-       			(default 0)
+       			(default #theme-default)
    			)
 		)
 
 		(select #themename
 			(set #themeshort "Default")
-			(set #themeshort "AISS")
+			(set #themeshort "AISSClassic")
 		)
 
 		(set #theme (tackon "PROGDIR:Resources/Themes/" #themeshort))

@@ -1335,6 +1335,38 @@ browser_window__handle_fetcherror(struct browser_window *bw,
 {
 	struct browser_fetch_parameters params;
 	nserror err;
+	lwc_string *scheme;
+	lwc_string *path;
+
+	/*
+	 * about:query/* pages must never re-enter themselves.  If the error
+	 * page itself fails (e.g. BoxConvert), navigating to fetcherror again
+	 * allocates forever until the OS panics on a corrupt MemList.
+	 */
+	scheme = nsurl_get_component(url, NSURL_SCHEME);
+	if (scheme == corestring_lwc_about) {
+		path = nsurl_get_component(url, NSURL_PATH);
+		if (path == corestring_lwc_query_fetcherror ||
+		    path == corestring_lwc_query_timeout ||
+		    path == corestring_lwc_query_auth ||
+		    path == corestring_lwc_query_ssl) {
+			NSLOG(netsurf, WARNING,
+			      "suppress recursive error page for %s (%s)",
+			      nsurl_access(url),
+			      reason != NULL ? reason : "?");
+			if (path != NULL) {
+				lwc_string_unref(path);
+			}
+			lwc_string_unref(scheme);
+			return NSERROR_OK;
+		}
+		if (path != NULL) {
+			lwc_string_unref(path);
+		}
+	}
+	if (scheme != NULL) {
+		lwc_string_unref(scheme);
+	}
 
 	memset(&params, 0, sizeof(params));
 

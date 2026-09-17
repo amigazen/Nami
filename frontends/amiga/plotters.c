@@ -47,6 +47,7 @@
 #include "amiga/plotters.h"
 #include "amiga/bitmap.h"
 #include "amiga/font.h"
+#include "amiga/font_ttengine.h"
 #include "amiga/gui.h"
 #include "amiga/memory.h"
 #include "amiga/misc.h"
@@ -79,6 +80,7 @@ struct gui_globals {
 	struct Layer_Info *layerinfo;
 	APTR areabuf;
 	APTR tmprasbuf;
+	ULONG tmpras_size; /* Chip TmpRas bytes (may be < width*height) */
 	struct Rectangle rect;
 	struct MinList *shared_pens;
 	bool managed_pen_list;
@@ -112,8 +114,13 @@ struct gui_globals *ami_plot_ra_alloc(ULONG width, ULONG height, bool force32bit
  	int depth = 32;
 	struct BitMap *friend = NULL;
 	struct Screen *scrn = ami_gui_get_screen();
+	struct gui_globals *gg;
 
-	struct gui_globals *gg = malloc(sizeof(struct gui_globals));
+	gg = calloc(1, sizeof(struct gui_globals));
+	if (gg == NULL) {
+		NSLOG(netsurf, WARNING, "ami_plot_ra_alloc: no memory for globals");
+		return NULL;
+	}
 
 	if(force32bit == false) depth = GetBitMapAttr(scrn->RastPort.BitMap, BMA_DEPTH);
 	NSLOG(netsurf, INFO, "Screen depth = %d", depth);
@@ -177,20 +184,28 @@ struct gui_globals *ami_plot_ra_alloc(ULONG width, ULONG height, bool force32bit
 	if(!width) width = nsoption_int(redraw_tile_size_x);
 	if(!height) height = nsoption_int(redraw_tile_size_y);
 #ifndef __amigaos4__
-	/* Hard cap — keep chip TmpRas small (see ami_set_screen_defaults) */
-	if (width == 0 || width > 256) {
-		width = 256;
+	/*
+	 * 0 = use screen size (NetSurf guide / "disable tiling").
+	 * Do not force 160×160 — that re-broke large images across tiles.
+	 * Chip cost is isolated to TmpRas below; the plot BitMap prefers Fast
+	 * via an RTG friend when available.
+	 */
+	if (width == 0) {
+		width = (ULONG)scrn->Width;
 	}
-	if (height == 0 || height > 256) {
-		height = 256;
+	if (height == 0) {
+		height = (ULONG)scrn->Height;
 	}
-	if (gg->palette_mapped == true) {
-		if (width > 160) {
-			width = 160;
-		}
-		if (height > 160) {
-			height = 160;
-		}
+	if (width < 160) {
+		width = 160;
+	}
+	if (height < 160) {
+		height = 160;
+	}
+	/* Prefer Fast graphics mem when the screen is RTG (non-STANDARD). */
+	if (friend == NULL && scrn->RastPort.BitMap != NULL &&
+	    (GetBitMapAttr(scrn->RastPort.BitMap, BMA_FLAGS) & BMF_STANDARD) == 0) {
+		friend = scrn->RastPort.BitMap;
 	}
 #endif
 	gg->width = width;
@@ -199,16 +214,54 @@ struct gui_globals *ami_plot_ra_alloc(ULONG width, ULONG height, bool force32bit
 	NSLOG(netsurf, INFO, "ami_plot_ra_alloc: %lux%lu depth=%d",
 	      (unsigned long)width, (unsigned long)height, depth);
 
+#ifndef __amigaos4__
+	/* Free cached pages before graphics scratch if Fast/Chip is tight. */
+	if (ami_memory_under_pressure()) {
+		ami_memory_try_purge();
+	}
+#endif
+
 	gg->layerinfo = NewLayerInfo();
 	gg->areabuf = malloc(AREA_SIZE);
 
-	/* OS3/AGA requires this to be in chip mem.  RTG would rather it wasn't. */
+#ifndef __amigaos4__
+	/*
+	 * Chip TmpRas for Area* scratch — one bitplane of the plot size is
+	 * enough (RASSIZE). Cap so a large Fast plot buffer does not demand
+	 * a matching Chip allocation.
+	 */
+	{
+		ULONG tmpras_bytes;
+
+		tmpras_bytes = (ULONG)RASSIZE((LONG)width, (LONG)height);
+		if (tmpras_bytes > 65536UL) {
+			tmpras_bytes = 65536UL;
+		}
+		if (tmpras_bytes < 4096UL) {
+			tmpras_bytes = 4096UL;
+		}
+		NSLOG(netsurf, INFO,
+		      "ami_plot_ra_alloc: chip TmpRas %lu bytes (plot %lux%lu)",
+		      (unsigned long)tmpras_bytes,
+		      (unsigned long)width, (unsigned long)height);
+		gg->tmprasbuf = ami_memory_chip_alloc(tmpras_bytes);
+		gg->tmpras_size = tmpras_bytes;
+	}
+#else
 	NSLOG(netsurf, INFO, "ami_plot_ra_alloc: chip TmpRas %lu bytes",
 	      (unsigned long)(width * height));
 	gg->tmprasbuf = ami_memory_chip_alloc(width * height);
+	gg->tmpras_size = width * height;
+#endif
 
 	if(gg->palette_mapped == true) {
-		gg->bm = AllocBitMap(width, height, depth, 0, friend);
+		/*
+		 * BMF_STANDARD so Remapped (STANDARD) image BitMaps blit into
+		 * this buffer. No BMF_DISPLAYABLE — OS3.x may keep planes in
+		 * Fast; friend of an AGA screen BitMap would force Chip.
+		 */
+		gg->bm = AllocBitMap(width, height, depth,
+				BMF_CLEAR | BMF_STANDARD, friend);
 	} else {
 #ifdef __amigaos4__
 		/* Screen depth is reported as 24 even when it's actually 32-bit.
@@ -223,34 +276,69 @@ struct gui_globals *ami_plot_ra_alloc(ULONG width, ULONG height, bool force32bit
 		gg->bm = ami_rtg_allocbitmap(width, height, 32, 0, friend, AMI_BITMAP_FORMAT);
 	}
 
-	if(!gg->bm) amiga_warn_user("NoMemory","");
-
 	gg->rp = malloc(sizeof(struct RastPort));
-	if(!gg->rp) amiga_warn_user("NoMemory","");
+	if (gg->rp != NULL) {
+		InitRastPort(gg->rp);
+		gg->rp->BitMap = gg->bm;
+		SetDrMd(gg->rp, BGBACKFILL);
 
-	InitRastPort(gg->rp);
-	gg->rp->BitMap = gg->bm;
+		if (gg->bm != NULL && gg->layerinfo != NULL) {
+			NSLOG(netsurf, INFO, "ami_plot_ra_alloc: CreateUpfrontLayer");
+			gg->rp->Layer = CreateUpfrontLayer(gg->layerinfo, gg->rp->BitMap,
+					0, 0, width - 1, height - 1, LAYERSIMPLE, NULL);
+			if (gg->rp->Layer != NULL) {
+				InstallLayerHook(gg->rp->Layer, LAYERS_NOBACKFILL);
+			}
+		}
 
-	SetDrMd(gg->rp,BGBACKFILL);
+		gg->rp->AreaInfo = malloc(sizeof(struct AreaInfo));
+		if (gg->rp->AreaInfo != NULL && gg->areabuf != NULL) {
+			InitArea(gg->rp->AreaInfo, gg->areabuf, AREA_SIZE / 5);
+		}
 
-	NSLOG(netsurf, INFO, "ami_plot_ra_alloc: CreateUpfrontLayer");
-	gg->rp->Layer = CreateUpfrontLayer(gg->layerinfo,gg->rp->BitMap,0,0,
-					width-1, height-1, LAYERSIMPLE, NULL);
-
-	InstallLayerHook(gg->rp->Layer,LAYERS_NOBACKFILL);
-
-	gg->rp->AreaInfo = malloc(sizeof(struct AreaInfo));
-	if((!gg->areabuf) || (!gg->rp->AreaInfo))	amiga_warn_user("NoMemory","");
-
-	InitArea(gg->rp->AreaInfo, gg->areabuf, AREA_SIZE/5);
-
-	gg->rp->TmpRas = malloc(sizeof(struct TmpRas));
-	if((!gg->tmprasbuf) || (!gg->rp->TmpRas))	amiga_warn_user("NoMemory","");
-
-	InitTmpRas(gg->rp->TmpRas, gg->tmprasbuf, width*height);
+		gg->rp->TmpRas = malloc(sizeof(struct TmpRas));
+		if (gg->rp->TmpRas != NULL && gg->tmprasbuf != NULL) {
+			InitTmpRas(gg->rp->TmpRas, gg->tmprasbuf, (LONG)gg->tmpras_size);
+		}
+	}
 
 	gg->shared_pens = NULL;
 	gg->managed_pen_list = false;
+
+	/*
+	 * Soft-fail: never continue with NULL BitMap/Layer (that hung after
+	 * the modal NoMemory requester on amigans). Clean up and return NULL.
+	 */
+	if (gg->bm == NULL || gg->rp == NULL || gg->layerinfo == NULL ||
+	    gg->areabuf == NULL || gg->tmprasbuf == NULL ||
+	    gg->rp->Layer == NULL || gg->rp->AreaInfo == NULL ||
+	    gg->rp->TmpRas == NULL) {
+		NSLOG(netsurf, WARNING,
+		      "ami_plot_ra_alloc: soft-fail %lux%lu (bm=%p rp=%p layer=%p)",
+		      (unsigned long)width, (unsigned long)height,
+		      (void *)gg->bm, (void *)gg->rp,
+		      gg->rp != NULL ? (void *)gg->rp->Layer : NULL);
+		amiga_warn_user("NoMemory", "");
+		/* Do not bump init_layers_count — free path expects that. */
+		if (gg->rp != NULL) {
+			if (gg->rp->Layer != NULL) {
+				DeleteLayer(0, gg->rp->Layer);
+			}
+			free(gg->rp->TmpRas);
+			free(gg->rp->AreaInfo);
+			free(gg->rp);
+		}
+		ami_memory_chip_free(gg->tmprasbuf);
+		free(gg->areabuf);
+		if (gg->layerinfo != NULL) {
+			DisposeLayerInfo(gg->layerinfo);
+		}
+		if (gg->bm != NULL) {
+			ami_rtg_freebitmap(gg->bm);
+		}
+		free(gg);
+		return NULL;
+	}
 
 	if(gg->palette_mapped == true) {
 		if(pool_pens == NULL) {
@@ -288,6 +376,10 @@ void ami_plot_ra_free(struct gui_globals *gg)
 	}
 
 	if(gg->rp) {
+#ifndef __amigaos4__
+		/* TTEngine attaches per-RastPort state on first TT_SetFont. */
+		ami_font_ttengine_done_rastport(gg->rp);
+#endif
 		if(gg->rp->Layer != NULL) {
 			/* Remove the clip region */
 			struct Region *reg = InstallClipRegion(gg->rp->Layer,NULL);
@@ -477,6 +569,83 @@ static void ami_arc_gfxlib(struct RastPort *rp, int x, int y, int radius, int an
 	}
 }
 
+#ifndef __amigaos4__
+/**
+ * OS3: blit native bitmap clipped to the current plot rectangle.
+ *
+ * Remap colours are opaque. When the soft buffer has real transparency and
+ * the plot bg was not baked in, punch holes with a 1-bit mask (upstream
+ * BltMaskBitMapRastPort path). Never invent alpha for opaque images.
+ */
+static void ami_bitmap_blit_os3(struct BitMap *tbm, struct RastPort *rp,
+		const struct Rectangle *clip,
+		int x, int y, int width, int height,
+		PLANEPTR mask)
+{
+	int sx;
+	int sy;
+	int dx;
+	int dy;
+	int bw;
+	int bh;
+	int clip_x1;
+	int clip_y1;
+	LONG sample;
+
+	sx = 0;
+	sy = 0;
+	dx = x;
+	dy = y;
+	bw = width;
+	bh = height;
+	clip_x1 = clip->MaxX + 1;
+	clip_y1 = clip->MaxY + 1;
+	sample = -1;
+
+	if (tbm == NULL || rp == NULL) {
+		return;
+	}
+
+	if (dx < clip->MinX) {
+		sx += clip->MinX - dx;
+		bw -= clip->MinX - dx;
+		dx = clip->MinX;
+	}
+	if (dy < clip->MinY) {
+		sy += clip->MinY - dy;
+		bh -= clip->MinY - dy;
+		dy = clip->MinY;
+	}
+	if ((dx + bw) > clip_x1) {
+		bw = clip_x1 - dx;
+	}
+	if ((dy + bh) > clip_y1) {
+		bh = clip_y1 - dy;
+	}
+	if ((bw <= 0) || (bh <= 0)) {
+		return;
+	}
+	if (sx < 0 || sy < 0 || (sx + bw) > width || (sy + bh) > height) {
+		return;
+	}
+
+	if (mask != NULL) {
+		BltMaskBitMapRastPort(tbm, sx, sy, rp, dx, dy, bw, bh,
+				MINTERM_SRCMASK, mask);
+	} else {
+		BltBitMapRastPort(tbm, sx, sy, rp, dx, dy, bw, bh, 0xC0);
+	}
+	WaitBlit();
+
+	if (bw >= 16 && bh >= 16) {
+		sample = ReadPixel(rp, dx + (bw / 2), dy + (bh / 2));
+		NSLOG(netsurf, INFO,
+		      "ami_bitmap_blit_os3: %dx%d at (%d,%d) mask=%d sample=%ld",
+		      bw, bh, dx, dy, mask != NULL ? 1 : 0, (long)sample);
+	}
+}
+#endif
+
 /**
  */
 static nserror
@@ -485,6 +654,8 @@ ami_bitmap(struct gui_globals *glob, int x, int y, int width, int height, struct
 	NSLOG(plot, DEEPDEBUG, "[ami_plotter] Entered ami_bitmap()");
 	struct Screen *scrn = ami_gui_get_screen();
 	struct BitMap *tbm;
+	PLANEPTR mask;
+	ULONG minterm;
 
 	if (!width || !height) {
 		return NSERROR_OK;
@@ -499,6 +670,13 @@ ami_bitmap(struct gui_globals *glob, int x, int y, int width, int height, struct
 
 	tbm = ami_bitmap_get_native(bitmap, width, height, glob->palette_mapped, glob->rp->BitMap, bg);
 	if (!tbm) {
+		/* Silent skip left blank holes on Aminet after Remap/Alloc fail. */
+		NSLOG(netsurf, WARNING,
+		      "ami_bitmap: no native %dx%d (soft %dx%d opaque=%d)",
+		      width, height,
+		      bitmap_get_width(bitmap),
+		      bitmap_get_height(bitmap),
+		      amiga_bitmap_get_opaque(bitmap) ? 1 : 0);
 		return NSERROR_OK;
 	}
 
@@ -529,20 +707,19 @@ ami_bitmap(struct gui_globals *glob, int x, int y, int width, int height, struct
 	} else
 #endif
 	{
-		ULONG tag = TAG_IGNORE, tag_data, minterm = 0xc0;
+#ifdef __amigaos4__
+		ULONG tag = TAG_IGNORE, tag_data;
 
-#ifdef __amigaos4__		
 		if (glob->palette_mapped == false) {
 			tag = BLITA_UseSrcAlpha;
 			tag_data = !amiga_bitmap_get_opaque(bitmap);
 			minterm = 0xc0;
+			mask = NULL;
 		} else {
-#endif
+			mask = (PLANEPTR)ami_bitmap_get_mask(bitmap, width, height, tbm);
+			minterm = mask != NULL ? MINTERM_SRCMASK : 0xc0;
 			tag = BLITA_MaskPlane;
-			if ((tag_data = (ULONG)ami_bitmap_get_mask(bitmap, width, height, tbm)))
-				minterm = MINTERM_SRCMASK;
-
-#ifdef __amigaos4__
+			tag_data = (ULONG)mask;
 		}
 
 		BltBitMapTags(BLITA_Width,width,
@@ -557,13 +734,22 @@ ami_bitmap(struct gui_globals *glob, int x, int y, int width, int height, struct
 						tag, tag_data,
 						TAG_DONE);
 #else
-
-		if(tag_data && (tag == BLITA_MaskPlane)) {
-			BltMaskBitMapRastPort(tbm, 0, 0, glob->rp, x, y, width, height, minterm,
-				(PLANEPTR)tag_data);
-		} else {
-			BltBitMapRastPort(tbm, 0, 0, glob->rp, x, y, width, height, 0xc0);
+		(void)scrn;
+		(void)minterm;
+		/*
+		 * Mask only for real (non-baked) transparency at 1:1 size.
+		 * Preblended native bitmaps are fully opaque.
+		 */
+		mask = NULL;
+		if (amiga_bitmap_get_opaque(bitmap) == false &&
+		    bg == NS_TRANSPARENT &&
+		    width == bitmap_get_width(bitmap) &&
+		    height == bitmap_get_height(bitmap)) {
+			mask = (PLANEPTR)ami_bitmap_get_mask(bitmap, width,
+					height, tbm);
 		}
+		ami_bitmap_blit_os3(tbm, glob->rp, &glob->rect,
+				x, y, width, height, mask);
 #endif
 	}
 
@@ -1040,6 +1226,9 @@ ami_bitmap_tile(const struct redraw_context *ctx,
 
 	tbm = ami_bitmap_get_native(bitmap, width, height, glob->palette_mapped, glob->rp->BitMap, bg);
 	if (!tbm) {
+		NSLOG(netsurf, WARNING,
+		      "ami_bitmap_tile: no native %dx%d",
+		      width, height);
 		return NSERROR_OK;
 	}
 	
@@ -1130,12 +1319,20 @@ ami_bitmap_tile(const struct redraw_context *ctx,
 					tag, tag_data,
 					TAG_DONE);
 #else
-				if(tag_data && (tag == BLITA_MaskPlane)) {
-					BltMaskBitMapRastPort(tbm, 0, 0, glob->rp, x, y,
-						width, height, minterm, (PLANEPTR)tag_data);
-				} else {
-					BltBitMapRastPort(tbm, 0, 0, glob->rp, x, y,
-						width, height, 0xc0);
+				/* Same OS3 path as ami_bitmap. */
+				{
+					PLANEPTR tile_mask;
+
+					tile_mask = NULL;
+					if (amiga_bitmap_get_opaque(bitmap) == false &&
+					    bg == NS_TRANSPARENT &&
+					    width == bitmap_get_width(bitmap) &&
+					    height == bitmap_get_height(bitmap)) {
+						tile_mask = (PLANEPTR)ami_bitmap_get_mask(
+								bitmap, width, height, tbm);
+					}
+					ami_bitmap_blit_os3(tbm, glob->rp, &glob->rect,
+							x, y, width, height, tile_mask);
 				}
 #endif
 			}

@@ -242,8 +242,11 @@ void ami_font_init(void)
 	if (eng == AMI_FONTENG_TTENGINE) {
 		if (ami_font_ttengine_init()) {
 			ami_font_active_engine = AMI_FONTENG_TTENGINE;
+			NSLOG(netsurf, INFO, "ami_font_init: engine=ttengine");
 			return;
 		}
+		NSLOG(netsurf, WARNING,
+		      "ami_font_init: ttengine init failed, falling back");
 		eng = nsoption_bool(bitmap_fonts) ?
 			AMI_FONTENG_DISKFONT : AMI_FONTENG_BULLET;
 	}
@@ -252,12 +255,14 @@ void ami_font_init(void)
 		ami_font_init_diskfont_defaults();
 		ami_font_diskfont_init();
 		ami_font_active_engine = AMI_FONTENG_DISKFONT;
+		NSLOG(netsurf, INFO, "ami_font_init: engine=diskfont");
 		return;
 	}
 
 	ami_font_init_bullet_defaults();
 	ami_font_bullet_init();
 	ami_font_active_engine = AMI_FONTENG_BULLET;
+	NSLOG(netsurf, INFO, "ami_font_init: engine=bullet");
 }
 
 void ami_font_fini(void)

@@ -158,6 +158,7 @@ OBJS = \
 	build/vbcc-os3/frontends_amiga_theme.o \
 	build/vbcc-os3/frontends_amiga_drag.o \
 	build/vbcc-os3/frontends_amiga_icon.o \
+	build/vbcc-os3/frontends_amiga_ico.o \
 	build/vbcc-os3/frontends_amiga_libs.o \
 	build/vbcc-os3/frontends_amiga_datatypes.o \
 	build/vbcc-os3/frontends_amiga_dt_picture.o \
@@ -231,73 +232,73 @@ build/vbcc-os3/content_handlers_javascript_none_none.o: content/handlers/javascr
 build/vbcc-os3/content_handlers_javascript_fetcher.o: content/handlers/javascript/fetcher.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_fetcher.o content/handlers/javascript/fetcher.c
 
-build/vbcc-os3/content_handlers_html_box_construct.o: content/handlers/html/box_construct.c
+build/vbcc-os3/content_handlers_html_box_construct.o: content/handlers/html/box_construct.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_box_construct.o content/handlers/html/box_construct.c
 
-build/vbcc-os3/content_handlers_html_box_inspect.o: content/handlers/html/box_inspect.c
+build/vbcc-os3/content_handlers_html_box_inspect.o: content/handlers/html/box_inspect.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_box_inspect.o content/handlers/html/box_inspect.c
 
-build/vbcc-os3/content_handlers_html_box_manipulate.o: content/handlers/html/box_manipulate.c
+build/vbcc-os3/content_handlers_html_box_manipulate.o: content/handlers/html/box_manipulate.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_box_manipulate.o content/handlers/html/box_manipulate.c
 
-build/vbcc-os3/content_handlers_html_box_normalise.o: content/handlers/html/box_normalise.c
+build/vbcc-os3/content_handlers_html_box_normalise.o: content/handlers/html/box_normalise.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_box_normalise.o content/handlers/html/box_normalise.c
 
-build/vbcc-os3/content_handlers_html_box_special.o: content/handlers/html/box_special.c
+build/vbcc-os3/content_handlers_html_box_special.o: content/handlers/html/box_special.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_box_special.o content/handlers/html/box_special.c
 
-build/vbcc-os3/content_handlers_html_box_textarea.o: content/handlers/html/box_textarea.c
+build/vbcc-os3/content_handlers_html_box_textarea.o: content/handlers/html/box_textarea.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_box_textarea.o content/handlers/html/box_textarea.c
 
-build/vbcc-os3/content_handlers_html_css.o: content/handlers/html/css.c
+build/vbcc-os3/content_handlers_html_css.o: content/handlers/html/css.c content/handlers/html/private.h content/handlers/html/html.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_css.o content/handlers/html/css.c
 
-build/vbcc-os3/content_handlers_html_css_fetcher.o: content/handlers/html/css_fetcher.c
+build/vbcc-os3/content_handlers_html_css_fetcher.o: content/handlers/html/css_fetcher.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_css_fetcher.o content/handlers/html/css_fetcher.c
 
-build/vbcc-os3/content_handlers_html_dom_event.o: content/handlers/html/dom_event.c
+build/vbcc-os3/content_handlers_html_dom_event.o: content/handlers/html/dom_event.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_dom_event.o content/handlers/html/dom_event.c
 
-build/vbcc-os3/content_handlers_html_font.o: content/handlers/html/font.c
+build/vbcc-os3/content_handlers_html_font.o: content/handlers/html/font.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_font.o content/handlers/html/font.c
 
-build/vbcc-os3/content_handlers_html_form.o: content/handlers/html/form.c
+build/vbcc-os3/content_handlers_html_form.o: content/handlers/html/form.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_form.o content/handlers/html/form.c
 
-build/vbcc-os3/content_handlers_html_forms.o: content/handlers/html/forms.c
+build/vbcc-os3/content_handlers_html_forms.o: content/handlers/html/forms.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_forms.o content/handlers/html/forms.c
 
-build/vbcc-os3/content_handlers_html_html.o: content/handlers/html/html.c
+build/vbcc-os3/content_handlers_html_html.o: content/handlers/html/html.c content/handlers/html/private.h content/handlers/html/html.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_html.o content/handlers/html/html.c
 
-build/vbcc-os3/content_handlers_html_imagemap.o: content/handlers/html/imagemap.c
+build/vbcc-os3/content_handlers_html_imagemap.o: content/handlers/html/imagemap.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_imagemap.o content/handlers/html/imagemap.c
 
-build/vbcc-os3/content_handlers_html_interaction.o: content/handlers/html/interaction.c
+build/vbcc-os3/content_handlers_html_interaction.o: content/handlers/html/interaction.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_interaction.o content/handlers/html/interaction.c
 
-build/vbcc-os3/content_handlers_html_layout.o: content/handlers/html/layout.c
+build/vbcc-os3/content_handlers_html_layout.o: content/handlers/html/layout.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_layout.o content/handlers/html/layout.c
 
-build/vbcc-os3/content_handlers_html_layout_flex.o: content/handlers/html/layout_flex.c
+build/vbcc-os3/content_handlers_html_layout_flex.o: content/handlers/html/layout_flex.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_layout_flex.o content/handlers/html/layout_flex.c
 
-build/vbcc-os3/content_handlers_html_object.o: content/handlers/html/object.c
+build/vbcc-os3/content_handlers_html_object.o: content/handlers/html/object.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_object.o content/handlers/html/object.c
 
-build/vbcc-os3/content_handlers_html_redraw.o: content/handlers/html/redraw.c
+build/vbcc-os3/content_handlers_html_redraw.o: content/handlers/html/redraw.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_redraw.o content/handlers/html/redraw.c
 
-build/vbcc-os3/content_handlers_html_redraw_border.o: content/handlers/html/redraw_border.c
+build/vbcc-os3/content_handlers_html_redraw_border.o: content/handlers/html/redraw_border.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_redraw_border.o content/handlers/html/redraw_border.c
 
-build/vbcc-os3/content_handlers_html_script.o: content/handlers/html/script.c
+build/vbcc-os3/content_handlers_html_script.o: content/handlers/html/script.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_script.o content/handlers/html/script.c
 
-build/vbcc-os3/content_handlers_html_table.o: content/handlers/html/table.c
+build/vbcc-os3/content_handlers_html_table.o: content/handlers/html/table.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_table.o content/handlers/html/table.c
 
-build/vbcc-os3/content_handlers_html_textselection.o: content/handlers/html/textselection.c
+build/vbcc-os3/content_handlers_html_textselection.o: content/handlers/html/textselection.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_textselection.o content/handlers/html/textselection.c
 
 build/vbcc-os3/content_handlers_text_textplain.o: content/handlers/text/textplain.c
@@ -653,6 +654,9 @@ build/vbcc-os3/frontends_amiga_drag.o: frontends/amiga/drag.c
 
 build/vbcc-os3/frontends_amiga_icon.o: frontends/amiga/icon.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_icon.o frontends/amiga/icon.c
+
+build/vbcc-os3/frontends_amiga_ico.o: frontends/amiga/ico.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_ico.o frontends/amiga/ico.c
 
 build/vbcc-os3/frontends_amiga_libs.o: frontends/amiga/libs.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_libs.o frontends/amiga/libs.c

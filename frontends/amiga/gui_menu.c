@@ -171,7 +171,11 @@ HOOKF(void, ami_menu_item_project_print, APTR, window, struct IntuiMessage *)
 HOOKF(void, ami_menu_item_project_about, APTR, window, struct IntuiMessage *)
 {
 	struct gui_window_2 *gwin;
-	char *temp, *temp2;
+	char *temp;
+	char *temp2;
+	char *body_fmt;
+	char *body_local;
+	char *title_local;
 	int sel;
 	nsurl *url = NULL;
 	nserror error = NSERROR_OK;
@@ -186,27 +190,30 @@ HOOKF(void, ami_menu_item_project_about, APTR, window, struct IntuiMessage *)
 
 	temp2 = ami_utf8_easy(temp);
 	FreeVec(temp);
-#ifdef __amigaos4__
-	sel = TimedDosRequesterTags(TDR_ImageType,TDRIMAGE_INFO,
-				TDR_TitleString, messages_get("NetSurf"),
-				TDR_Window, ami_gui2_get_window(gwin),
-				TDR_GadgetString, temp2,
-				TDR_FormatString,"NetSurf %s\nBuild date %s\n\nhttp://www.netsurf-browser.org",
-				TDR_Arg1,netsurf_version,
-				TDR_Arg2,verdate,
-				TAG_DONE);
-#else
-	struct EasyStruct about_req = {
-		sizeof(struct EasyStruct),
-		0,
-		"NetSurf",
-		"NetSurf %s\nBuild date %s\n\nhttp://www.netsurf-browser.org",
-		temp2,
-	};
 
-	sel = EasyRequest(ami_gui2_get_window(gwin), &about_req, NULL, netsurf_version, verdate);
-#endif
-	free(temp2);
+	body_fmt = ASPrintf(
+			"Nami %s\nBuild date %s\n\n"
+			"https://www.amigazen.com/nami/\n\n"
+			"Based on NetSurf\n"
+			"https://www.netsurf-browser.org/",
+			netsurf_version, verdate);
+	body_local = ami_utf8_easy(body_fmt != NULL ? body_fmt : "Nami");
+	if(body_fmt != NULL)
+		FreeVec(body_fmt);
+	title_local = ami_utf8_easy(messages_get("NetSurf"));
+
+	sel = ami_misc_requester(ami_gui2_get_window(gwin),
+			title_local != NULL ? title_local : "Nami",
+			body_local != NULL ? body_local : "Nami",
+			temp2 != NULL ? temp2 : "OK",
+			AMI_REQ_IMAGE_INFO);
+
+	if(temp2 != NULL)
+		free(temp2);
+	if(body_local != NULL)
+		free(body_local);
+	if(title_local != NULL)
+		free(title_local);
 
 	if(sel == 2) {
 		error = nsurl_create("about:credits", &url);

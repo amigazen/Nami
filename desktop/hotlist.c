@@ -971,8 +971,10 @@ static nserror hotlist_generate(void)
 		const char *url;
 		const char *msg_key;
 	} default_entries[] = {
-		{ "https://www.netsurf-browser.org/",
+		{ "https://www.amigazen.com/nami/",
 				"HotlistHomepage" },
+		{ "https://www.netsurf-browser.org/",
+				"HotlistNetSurf" },
 		{ "https://www.netsurf-browser.org/downloads/",
 				"HotlistDownloads" },
 		{ "https://www.netsurf-browser.org/documentation",
@@ -983,8 +985,11 @@ static nserror hotlist_generate(void)
 	const int n_entries = sizeof(default_entries) /
 			sizeof(default_entries[0]);
 
-	/* First make "NetSurf" folder for defualt entries */
-	title = "NetSurf";
+	/* First make "Nami" folder for default entries */
+	title = messages_get("NetSurf");
+	if (title == NULL || title[0] == '\0') {
+		title = "Nami";
+	}
 	err = hotlist_add_folder_internal(title, NULL,
 			TREE_REL_FIRST_CHILD, &f, false);
 	if (err != NSERROR_OK) {
@@ -1626,7 +1631,7 @@ nserror hotlist_add_entry(nsurl *url, const char *title, bool at_y, int y)
 	enum treeview_relationship rel;
 
 	if (url == NULL) {
-		err = nsurl_create("https://netsurf-browser.org/", &url);
+		err = nsurl_create("https://www.amigazen.com/nami/", &url);
 		if (err != NSERROR_OK) {
 			return err;
 		}
