@@ -51,6 +51,31 @@
 static void html_object_refresh(void *p);
 
 /**
+ * Run a deferred incremental reflow once min_reflow_period has elapsed.
+ *
+ * Object arrivals inside the reflow budget set reflow_pending and schedule
+ * this instead of dropping the update (Voyager-style coalesce).
+ */
+static void
+html_object_deferred_reflow(void *p)
+{
+	html_content *c = p;
+
+	if (c == NULL || c->reflow_pending == false) {
+		return;
+	}
+
+	c->reflow_pending = false;
+
+	if (c->base.status == CONTENT_STATUS_READY ||
+	    c->base.status == CONTENT_STATUS_DONE) {
+		content__reformat(&c->base, false,
+				c->base.available_width,
+				c->base.available_height);
+	}
+}
+
+/**
  * Retrieve objects used by HTML document
  *
  * \param h  Content to retrieve objects from
@@ -479,6 +504,10 @@ html_object_callback(hlcache_handle *object,
 	     event->type == CONTENT_MSG_DONE ||
 	     event->type == CONTENT_MSG_ERROR)) {
 		/* all objects have arrived */
+		if (c->reflow_pending) {
+			guit->misc->schedule(-1, html_object_deferred_reflow, c);
+			c->reflow_pending = false;
+		}
 		content__reformat(&c->base, false, c->base.available_width,
 				c->base.available_height);
 		content_set_done(&c->base);
@@ -502,10 +531,30 @@ html_object_callback(hlcache_handle *object,
 			 *  between reformats so reformat the page to
 			 *  display newly fetched objects
 			 */
+			if (c->reflow_pending) {
+				guit->misc->schedule(-1,
+						html_object_deferred_reflow, c);
+				c->reflow_pending = false;
+			}
 			content__reformat(&c->base,
 					  false,
 					  c->base.available_width,
 					  c->base.available_height);
+		} else if (c->reflow_pending == false) {
+			/*
+			 * Coalesce object arrivals inside the reflow budget
+			 * into one deferred layout (Voyager batches layout
+			 * while data is still arriving).
+			 */
+			int delay_ms;
+
+			c->reflow_pending = true;
+			delay_ms = (int)(c->base.reformat_time - ms_now);
+			if (delay_ms < 1) {
+				delay_ms = 1;
+			}
+			guit->misc->schedule(delay_ms,
+					html_object_deferred_reflow, c);
 		}
 	}
 
@@ -686,6 +735,11 @@ nserror html_object_close_objects(html_content *html)
 /* exported interface documented in html/object.h */
 nserror html_object_free_objects(html_content *html)
 {
+	if (html->reflow_pending) {
+		guit->misc->schedule(-1, html_object_deferred_reflow, html);
+		html->reflow_pending = false;
+	}
+
 	while (html->object_list != NULL) {
 		struct content_html_object *victim = html->object_list;
 

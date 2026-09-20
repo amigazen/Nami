@@ -42,6 +42,12 @@
 #ifndef PDTA_ScaleQuality
 #define PDTA_ScaleQuality	TAG_IGNORE
 #endif
+#ifndef PDTA_DitherQuality
+#define PDTA_DitherQuality	(DTA_Dummy + 222)
+#endif
+#ifndef PDTA_MaxDitherPens
+#define PDTA_MaxDitherPens	(DTA_Dummy + 221)
+#endif
 /* Real V47 tags — never TAG_IGNORE (that silently disables transparency). */
 #ifndef PDTA_AlphaChannel
 #define PDTA_AlphaChannel	(DTA_Dummy + 256)
@@ -76,7 +82,6 @@
 #include "amiga/bitmap.h"
 #include "amiga/filetype.h"
 #include "amiga/datatypes.h"
-#include "amiga/gui.h"
 #include "amiga/memory.h"
 #include "amiga/rtg.h"
 
@@ -386,24 +391,26 @@ static BOOL amiga_dt_picture_ensure_spill_dir(void)
  * for opaque PNGs; READPIXELARRAY then looks like real transparency and we
  * punch holes where none exist. Remap against the screen happens later in
  * ami_bitmap_get_picturedt.
+ *
+ * NewDTObject only — caller must PDTM_SCALE (if needed) then DTM_PROCLAYOUT.
+ * Autodoc: PDTM_SCALE is only valid before the first layout.
  */
-static Object *amiga_dt_picture_open_file(const char *filename,
-		struct Screen *screen)
+static Object *amiga_dt_picture_new_file(const char *filename)
 {
 	Object *dto;
-	struct gpLayout gpl;
-	ULONG ok;
-
-	(void)screen;
 
 	dto = NewDTObject((APTR)filename,
 			DTA_SourceType, DTST_FILE,
 			DTA_GroupID, GID_PICTURE,
 			PDTA_Remap, FALSE,
+			/* Keep source until READPIXELARRAY; we DisposeDTObject
+			 * immediately after, so FreeSourceBitMap saves little. */
 			PDTA_FreeSourceBitMap, FALSE,
 			PDTA_DestMode, PMODE_V43,
 			PDTA_UseFriendBitMap, FALSE,
-			OBP_Precision, PRECISION_IMAGE,
+			OBP_Precision, ami_dt_precision(),
+			PDTA_ScaleQuality, ami_dt_scale_quality(),
+			PDTA_DitherQuality, ami_dt_dither_quality(),
 			TAG_DONE);
 
 	if (dto == NULL) {
@@ -411,7 +418,9 @@ static Object *amiga_dt_picture_open_file(const char *filename,
 				DTA_SourceType, DTST_FILE,
 				DTA_GroupID, GID_PICTURE,
 				PDTA_Remap, FALSE,
+				PDTA_FreeSourceBitMap, FALSE,
 				PDTA_DestMode, PMODE_V43,
+				OBP_Precision, ami_dt_precision(),
 				TAG_DONE);
 	}
 
@@ -419,7 +428,107 @@ static Object *amiga_dt_picture_open_file(const char *filename,
 		NSLOG(netsurf, WARNING,
 		      "amiga_dt_picture: NewDTObject(%s) IoErr=%ld",
 		      filename, (long)IoErr());
-		return NULL;
+	}
+
+	return dto;
+}
+
+/**
+ * Read nominal / BitMapHeader size from a freshly created (unlaid-out) dto.
+ */
+static BOOL
+amiga_dt_picture_query_size(Object *dto, int *width, int *height)
+{
+	struct BitMapHeader *bmh;
+	ULONG nom_w;
+	ULONG nom_h;
+	ULONG got;
+
+	if (dto == NULL || width == NULL || height == NULL) {
+		return FALSE;
+	}
+
+	*width = 0;
+	*height = 0;
+	nom_w = 0;
+	nom_h = 0;
+	got = GetDTAttrs(dto,
+			DTA_NominalHoriz, &nom_w,
+			DTA_NominalVert, &nom_h,
+			TAG_DONE);
+	if (got >= 2 && nom_w > 0 && nom_h > 0) {
+		*width = (int)nom_w;
+		*height = (int)nom_h;
+		return TRUE;
+	}
+
+	bmh = NULL;
+	got = GetDTAttrs(dto, PDTA_BitMapHeader, &bmh, TAG_DONE);
+	if (got != 0 && bmh != NULL &&
+	    bmh->bmh_Width > 0 && bmh->bmh_Height > 0) {
+		*width = (int)bmh->bmh_Width;
+		*height = (int)bmh->bmh_Height;
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+/**
+ * Cap size, optional PDTM_SCALE, then DTM_PROCLAYOUT (once).
+ * *width / *height are in/out: desired size in, final size out.
+ * Pass 0,0 to use natural size (still capped on OS3).
+ */
+static BOOL
+amiga_dt_picture_scale_and_layout(Object *dto, int *width, int *height)
+{
+	struct gpLayout gpl;
+	struct BitMapHeader *bmh;
+	ULONG ok;
+	ULONG got;
+	int nat_w;
+	int nat_h;
+	int want_w;
+	int want_h;
+
+	if (dto == NULL || width == NULL || height == NULL) {
+		return FALSE;
+	}
+
+	nat_w = 0;
+	nat_h = 0;
+	if (amiga_dt_picture_query_size(dto, &nat_w, &nat_h) == FALSE) {
+		NSLOG(netsurf, WARNING,
+		      "amiga_dt_picture: no size before layout");
+		return FALSE;
+	}
+
+	want_w = *width;
+	want_h = *height;
+	if (want_w <= 0 || want_h <= 0) {
+		want_w = nat_w;
+		want_h = nat_h;
+	}
+
+#ifndef __amigaos4__
+	ami_memory_cap_image_dims(&want_w, &want_h);
+#endif
+
+	/* Autodoc: PDTM_SCALE only before first GM_LAYOUT / DTM_PROCLAYOUT. */
+	if (want_w != nat_w || want_h != nat_h) {
+		NSLOG(netsurf, INFO,
+		      "amiga_dt_picture: PDTM_SCALE before layout %dx%d -> %dx%d",
+		      nat_w, nat_h, want_w, want_h);
+		ok = DoMethod(dto, PDTM_SCALE,
+				(ULONG)want_w, (ULONG)want_h, 0);
+		if (ok == 0) {
+			NSLOG(netsurf, WARNING,
+			      "amiga_dt_picture: PDTM_SCALE failed; "
+			      "layout at native %dx%d",
+			      nat_w, nat_h);
+			want_w = nat_w;
+			want_h = nat_h;
+		}
 	}
 
 	memset(&gpl, 0, sizeof(gpl));
@@ -429,13 +538,30 @@ static Object *amiga_dt_picture_open_file(const char *filename,
 	ok = DoMethodA(dto, (Msg)&gpl);
 	if (ok == 0) {
 		NSLOG(netsurf, WARNING,
-		      "amiga_dt_picture: DTM_PROCLAYOUT(%s) IoErr=%ld",
-		      filename, (long)IoErr());
-		DisposeDTObject(dto);
-		return NULL;
+		      "amiga_dt_picture: DTM_PROCLAYOUT IoErr=%ld",
+		      (long)IoErr());
+		return FALSE;
 	}
 
-	return dto;
+	/* Confirm post-layout size. */
+	bmh = NULL;
+	got = GetDTAttrs(dto, PDTA_BitMapHeader, &bmh, TAG_DONE);
+	if (got != 0 && bmh != NULL &&
+	    bmh->bmh_Width > 0 && bmh->bmh_Height > 0) {
+		want_w = (int)bmh->bmh_Width;
+		want_h = (int)bmh->bmh_Height;
+	}
+
+	*width = want_w;
+	*height = want_h;
+
+#ifndef __amigaos4__
+	if (ami_memory_under_pressure()) {
+		ami_memory_try_purge();
+	}
+#endif
+
+	return TRUE;
 }
 
 /**
@@ -709,6 +835,9 @@ static BOOL amiga_dt_picture_read_pixels(Object *dto, UBYTE *buf,
  * real image extension. DTST_MEMORY loses to drawing.datatype
  * (IoErr ERROR_OBJECT_WRONG_TYPE / 212) on this OS3 setup.
  *
+ * Does NOT layout — caller must amiga_dt_picture_scale_and_layout() so
+ * PDTM_SCALE can run before the first DTM_PROCLAYOUT.
+ *
  * - file://  -> open the Amiga path directly (no copy)
  * - http(s)  -> spill under keyed T:nsXXXXXXXX/ then DTST_FILE
  */
@@ -717,7 +846,6 @@ static Object *amiga_dt_picture_newdtobject(struct amiga_dt_picture_content *adt
 	const uint8_t *data;
 	size_t size;
 	Object *dto;
-	struct Screen *screen;
 	char *path;
 	nserror path_err;
 	const char *ext;
@@ -736,7 +864,6 @@ static Object *amiga_dt_picture_newdtobject(struct amiga_dt_picture_content *adt
 		return NULL;
 	}
 
-	screen = ami_gui_get_screen();
 	path = NULL;
 	dto = NULL;
 
@@ -744,10 +871,10 @@ static Object *amiga_dt_picture_newdtobject(struct amiga_dt_picture_content *adt
 	path_err = netsurf_nsurl_to_path(
 			llcache_handle_get_url(adt->c.llcache), &path);
 	if (path_err == NSERROR_OK && path != NULL) {
-		dto = amiga_dt_picture_open_file(path, screen);
+		dto = amiga_dt_picture_new_file(path);
 		if (dto != NULL) {
 			NSLOG(netsurf, INFO,
-			      "amiga_dt_picture: layout ok file=%s size=%lu",
+			      "amiga_dt_picture: NewDTObject file=%s size=%lu",
 			      path, (unsigned long)size);
 			free(path);
 			adt->dto = dto;
@@ -791,7 +918,7 @@ static Object *amiga_dt_picture_newdtobject(struct amiga_dt_picture_content *adt
 		return NULL;
 	}
 
-	dto = amiga_dt_picture_open_file(path, screen);
+	dto = amiga_dt_picture_new_file(path);
 	if (dto == NULL) {
 		DeleteFile(path);
 		free(path);
@@ -801,57 +928,27 @@ static Object *amiga_dt_picture_newdtobject(struct amiga_dt_picture_content *adt
 	adt->spill = path;
 	adt->dto = dto;
 	NSLOG(netsurf, DEBUG,
-	      "amiga_dt_picture: layout ok spill=%s size=%lu",
+	      "amiga_dt_picture: NewDTObject spill=%s size=%lu",
 	      path, (unsigned long)size);
 	return adt->dto;
 }
 
 static char *amiga_dt_picture_datatype(struct content *c)
 {
-	struct amiga_dt_picture_content *adt = (struct amiga_dt_picture_content *)c;
-	struct DataType *dt;
-	char *filetype = NULL;
-	const char *path;
-	char *p;
-	BPTR lock;
+	lwc_string *mime;
+	char *filetype;
 
-	path = adt->spill;
-	p = NULL;
-	if (path == NULL) {
-		if (netsurf_nsurl_to_path(llcache_handle_get_url(c->llcache),
-					 &p) == NSERROR_OK) {
-			path = p;
-			lock = Lock(path, ACCESS_READ);
-			if (lock != 0) {
-				dt = ObtainDataType(DTST_FILE, (APTR)lock,
-						DTA_GroupID, GID_PICTURE,
-						TAG_DONE);
-				UnLock(lock);
-				if (dt != NULL) {
-					filetype = strdup(dt->dtn_Header->dth_Name);
-					ReleaseDataType(dt);
-				}
-			}
-			free(p);
-			path = NULL;
-		}
-	} else {
-		lock = Lock(path, ACCESS_READ);
-		if (lock != 0) {
-			dt = ObtainDataType(DTST_FILE, (APTR)lock,
-					DTA_GroupID, GID_PICTURE,
-					TAG_DONE);
-			UnLock(lock);
-			if (dt != NULL) {
-				filetype = strdup(dt->dtn_Header->dth_Name);
-				ReleaseDataType(dt);
-			}
+	/* Avoid Lock + ObtainDataType on every image — that was a hot-path
+	 * DOS/datatypes probe just for the status title string. */
+	mime = content__get_mime_type(c);
+	if (mime != NULL) {
+		filetype = strdup(lwc_string_data(mime));
+		if (filetype != NULL) {
+			return filetype;
 		}
 	}
 
-	if (filetype == NULL) {
-		filetype = strdup("DataTypes");
-	}
+	filetype = strdup("DataTypes");
 	return filetype;
 }
 
@@ -910,37 +1007,17 @@ static struct bitmap *amiga_dt_picture_bitmap_from_dto(struct content *c,
 
 /**
  * Scale dto to content intrinsic size when a spill reopen is full-res.
+ * Must run before DTM_PROCLAYOUT (see amiga_dt_picture_scale_and_layout).
  */
-static void amiga_dt_picture_scale_to_content(struct content *c, Object *dto)
+static BOOL
+amiga_dt_picture_layout_for_content(struct content *c, Object *dto)
 {
-#ifndef __amigaos4__
-	struct BitMapHeader *bmh;
-	ULONG got_bmh;
-	ULONG scale_ok;
+	int width;
+	int height;
 
-	bmh = NULL;
-	got_bmh = GetDTAttrs(dto, PDTA_BitMapHeader, &bmh, TAG_DONE);
-	if (got_bmh != 0 && bmh != NULL &&
-	    ((int)bmh->bmh_Width != c->width ||
-	     (int)bmh->bmh_Height != c->height)) {
-		NSLOG(netsurf, INFO,
-		      "amiga_dt_picture: PDTM_SCALE %dx%d -> %dx%d",
-		      (int)bmh->bmh_Width, (int)bmh->bmh_Height,
-		      c->width, c->height);
-		scale_ok = DoMethod(dto, PDTM_SCALE,
-				(ULONG)c->width, (ULONG)c->height, 0);
-		if (scale_ok == 0) {
-			NSLOG(netsurf, WARNING,
-			      "amiga_dt_picture: PDTM_SCALE failed");
-		}
-	}
-	if (ami_memory_under_pressure()) {
-		ami_memory_try_purge();
-	}
-#else
-	(void)c;
-	(void)dto;
-#endif
+	width = c->width;
+	height = c->height;
+	return amiga_dt_picture_scale_and_layout(dto, &width, &height);
 }
 
 static struct bitmap *amiga_dt_picture_cache_convert(struct content *c)
@@ -957,7 +1034,12 @@ static struct bitmap *amiga_dt_picture_cache_convert(struct content *c)
 		return NULL;
 	}
 
-	amiga_dt_picture_scale_to_content(c, dto);
+	if (amiga_dt_picture_layout_for_content(c, dto) == FALSE) {
+		DisposeDTObject(dto);
+		adt->dto = NULL;
+		return NULL;
+	}
+
 	bitmap = amiga_dt_picture_bitmap_from_dto(c, dto);
 
 	/* Drop the DT object; keep spill so a later miss can reopen without
@@ -974,11 +1056,7 @@ static bool amiga_dt_picture_convert(struct content *c)
 	int height;
 	char *title;
 	Object *dto;
-	struct BitMapHeader *bmh;
 	char *filetype;
-	ULONG got;
-	ULONG nom_w;
-	ULONG nom_h;
 	struct bitmap *bitmap;
 	struct amiga_dt_picture_content *adt =
 			(struct amiga_dt_picture_content *)c;
@@ -988,63 +1066,22 @@ static bool amiga_dt_picture_convert(struct content *c)
 	dto = amiga_dt_picture_newdtobject(adt);
 	if (dto == NULL) {
 		NSLOG(netsurf, WARNING,
-		      "amiga_dt_picture_convert: open/layout failed for %s",
+		      "amiga_dt_picture_convert: NewDTObject failed for %s",
 		      nsurl_access(llcache_handle_get_url(c->llcache)));
 		return false;
 	}
 
+	/* 0,0 => natural size, capped, scaled before first PROCLAYOUT. */
 	width = 0;
 	height = 0;
-	nom_w = 0;
-	nom_h = 0;
-	got = GetDTAttrs(dto,
-			DTA_NominalHoriz, &nom_w,
-			DTA_NominalVert, &nom_h,
-			TAG_DONE);
-	if (got >= 2 && nom_w > 0 && nom_h > 0) {
-		width = (int)nom_w;
-		height = (int)nom_h;
-	}
-
-	if (width <= 0 || height <= 0) {
-		bmh = NULL;
-		got = GetDTAttrs(dto, PDTA_BitMapHeader, &bmh, TAG_DONE);
-		if (got != 0 && bmh != NULL) {
-			width = (int)bmh->bmh_Width;
-			height = (int)bmh->bmh_Height;
-		}
-	}
-
-	if (width <= 0 || height <= 0) {
+	if (amiga_dt_picture_scale_and_layout(dto, &width, &height) == FALSE) {
 		NSLOG(netsurf, WARNING,
-		      "amiga_dt_picture_convert: no size after layout for %s",
+		      "amiga_dt_picture_convert: scale/layout failed for %s",
 		      nsurl_access(llcache_handle_get_url(c->llcache)));
 		DisposeDTObject(dto);
 		adt->dto = NULL;
 		return false;
 	}
-
-#ifndef __amigaos4__
-	/*
-	 * Cap before image_cache stores intrinsic size — amigans banner
-	 * is 1920×64 (~480KB RGBA); layout on a 640-wide screen does not
-	 * need the full native buffer. Scale the DataType early so its
-	 * BitMap does not sit at full size until redraw.
-	 */
-	ami_memory_cap_image_dims(&width, &height);
-	{
-		struct BitMapHeader *bmh_cap;
-		ULONG got_bmh;
-
-		bmh_cap = NULL;
-		got_bmh = GetDTAttrs(dto, PDTA_BitMapHeader, &bmh_cap, TAG_DONE);
-		if (got_bmh != 0 && bmh_cap != NULL &&
-		    ((int)bmh_cap->bmh_Width != width ||
-		     (int)bmh_cap->bmh_Height != height)) {
-			DoMethod(dto, PDTM_SCALE, (ULONG)width, (ULONG)height, 0);
-		}
-	}
-#endif
 
 	NSLOG(netsurf, DEBUG,
 	      "amiga_dt_picture_convert: ok %dx%d", width, height);

@@ -552,6 +552,9 @@ exec_inline_script(html_content *c, dom_node *node, dom_string *mimetype)
 			       (const uint8_t *)dom_string_data(script),
 			       dom_string_byte_length(script),
 			       "?inline script?");
+	} else {
+		NSLOG(netsurf, WARNING,
+				"inline script skipped: no CONTENT_JS handler");
 	}
 	return DOM_HUBBUB_OK;
 }

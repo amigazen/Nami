@@ -27,6 +27,7 @@
 
 #include <string.h>
 #include <dom/dom.h>
+#include <nsutils/time.h>
 
 #include "utils/errors.h"
 #include "utils/nsoption.h"
@@ -243,6 +244,12 @@ box_extract_properties(dom_node *n, struct box_construct_props *props)
  * \param  root_style      root node's style, or NULL for root
  * \param  n               node in xml tree
  * \return  the new style, or NULL on memory exhaustion
+ *
+ * Note: Incremental image reflows reuse the existing box tree and do not
+ * re-select styles. Style cost is paid once during box construction.
+ * author_level_css gates style= / <style>; LibCSS already shares identical
+ * computed styles between cousin nodes. Skipping author CSS is the main
+ * Amiga speed lever for this path.
  */
 static css_select_results *
 box_get_style(html_content *c,
@@ -1230,13 +1237,23 @@ static bool box_construct_text(struct box_construct_ctx *ctx)
 /**
  * Convert an ELEMENT node to a box tree fragment,
  * then schedule conversion of the next ELEMENT node
+ *
+ * Voyager-style batching: process a larger chunk (or up to ~15ms) before
+ * yielding, instead of scheduling after every 10 elements. Reduces schedule
+ * overhead on slow machines without starving the UI for long.
  */
 static void convert_xml_to_box(struct box_construct_ctx *ctx)
 {
 	dom_node *next;
 	bool convert_children;
 	uint32_t num_processed = 0;
-	const uint32_t max_processed_before_yield = 10;
+	uint64_t ms_start;
+	uint64_t ms_now;
+	/* Cap elements and wall time so one burst cannot lock the UI. */
+	const uint32_t max_processed_before_yield = 64;
+	const uint64_t max_ms_before_yield = 15;
+
+	nsu_getmonotonic_ms(&ms_start);
 
 	do {
 		convert_children = true;
@@ -1308,7 +1325,14 @@ static void convert_xml_to_box(struct box_construct_ctx *ctx)
 			free(ctx);
 			return;
 		}
-	} while (++num_processed < max_processed_before_yield);
+
+		num_processed++;
+		if ((num_processed & 7) == 0) {
+			nsu_getmonotonic_ms(&ms_now);
+			if ((ms_now - ms_start) >= max_ms_before_yield)
+				break;
+		}
+	} while (num_processed < max_processed_before_yield);
 
 	/* More work to do: schedule a continuation */
 	guit->misc->schedule(0, (void *)convert_xml_to_box, ctx);

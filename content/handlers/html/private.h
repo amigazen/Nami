@@ -219,6 +219,11 @@ typedef struct html_content {
 	unsigned int author_css_pending;
 	/** Deferred CSS rebuild could not run yet (e.g. cancel failed). */
 	bool css_restyle_pending;
+	/**
+	 * Incremental object reflow was deferred past min_reflow_period;
+	 * a scheduled callback will run layout once the budget expires.
+	 */
+	bool reflow_pending;
 
 } html_content;
 

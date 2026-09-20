@@ -90,6 +90,600 @@
 	<p class="note"><strong>Tip.</strong> Open <code>about:about</code> any time for a map of built-in pages (config, Choices, cache charts, and more).</p>
 </div>
 
+<div class="section">
+	<p class="kicker">Live wire</p>
+	<h2 class="section-head">Try JavaScript</h2>
+	<p class="section-sub">Turn on <strong>Enable JavaScript</strong> in Preferences and reload. This page runs a QuickJS binding smoke test via <code>quickjs.library</code>.</p>
+	<div id="js-smoke-sandbox" class="js-smoke-sandbox"></div>
+	<pre id="js-smoke-out" class="js-smoke-out">JavaScript is off or still starting…</pre>
+	<p id="js-smoke-run" class="js-demo-btn">Re-run smoke test</p>
+	<script type="text/javascript">
+	(function () {
+		var out = document.getElementById("js-smoke-out");
+		var btn = document.getElementById("js-smoke-run");
+		var box = document.getElementById("js-smoke-sandbox");
+		var lines = [];
+		var pass = 0;
+		var fail = 0;
+		var skip = 0;
+		var pending = 0;
+		var runNo = 0;
+
+		function paint() {
+			var i;
+			var text;
+			var sum;
+
+			if (!out) {
+				return;
+			}
+			text = "Nami QuickJS smoke — run #" + runNo + "\n\n";
+			for (i = 0; i < lines.length; i++) {
+				text += lines[i].text + "\n";
+			}
+			sum = pass + " pass, " + fail + " fail";
+			if (skip) {
+				sum += ", " + skip + " skip";
+			}
+			if (pending) {
+				sum += ", " + pending + " pending";
+			}
+			text += "----\n" + sum;
+			out.textContent = text;
+		}
+
+		function row(ok, name, detail) {
+			var mark;
+			var text;
+
+			if (ok === true) {
+				mark = "PASS";
+				pass++;
+			} else if (ok === false) {
+				mark = "FAIL";
+				fail++;
+			} else {
+				mark = "SKIP";
+				skip++;
+			}
+			text = mark + "  " + name;
+			if (detail) {
+				text += " — " + detail;
+			}
+			lines.push({ ok: ok, text: text });
+		}
+
+		function check(name, fn) {
+			var v;
+
+			try {
+				v = fn();
+				if (v === true) {
+					row(true, name, "");
+				} else if (v === false) {
+					row(false, name, "assertion false");
+				} else if (v == null) {
+					row(null, name, "unavailable");
+				} else {
+					row(true, name, String(v));
+				}
+			} catch (e) {
+				row(false, name, e && e.message ? e.message : String(e));
+			}
+		}
+
+		function clearKids(el) {
+			if (!el) {
+				return;
+			}
+			while (el.firstChild) {
+				el.removeChild(el.firstChild);
+			}
+		}
+
+		function runSmoke() {
+			var el;
+			var kid;
+			var sib;
+			var frag;
+			var list;
+			var map;
+			var txt;
+			var t1;
+			var t2;
+			var t3;
+			var clicked;
+			var handler;
+			var before;
+			var after;
+			var evt;
+			var n;
+
+			lines = [];
+			pass = 0;
+			fail = 0;
+			skip = 0;
+			pending = 0;
+			runNo++;
+			if (btn) {
+				btn.textContent = "Re-run smoke test (#" + runNo + ")";
+			}
+			if (box) {
+				clearKids(box);
+				box.className = "js-smoke-sandbox";
+				box.removeAttribute("data-x");
+				box.removeAttribute("data-m");
+				box.removeAttribute("data-smoke");
+			}
+
+			check("window", function () {
+				return typeof window !== "undefined" && window != null;
+			});
+			check("window === self", function () {
+				return typeof self !== "undefined" && self === window;
+			});
+			check("window === top", function () {
+				return typeof top !== "undefined" && top === window;
+			});
+			check("window === parent", function () {
+				return typeof parent !== "undefined" && parent === window;
+			});
+			check("window.document", function () {
+				return window.document === document;
+			});
+			check("window.closed", function () {
+				return window.closed === false;
+			});
+			check("console.log", function () {
+				if (typeof console === "undefined" ||
+						typeof console.log !== "function") {
+					return false;
+				}
+				console.log("nami smoke: console.log ok");
+				return true;
+			});
+			check("console.info/warn/error", function () {
+				if (typeof console === "undefined") {
+					return null;
+				}
+				return typeof console.info === "function" &&
+						typeof console.warn === "function" &&
+						typeof console.error === "function";
+			});
+			check("JSON.parse/stringify", function () {
+				return JSON.stringify(JSON.parse('{"a":1}')).indexOf("a") >= 0;
+			});
+			check("alert present", function () {
+				return typeof alert === "function";
+			});
+
+			check("location.href", function () {
+				return typeof location !== "undefined" &&
+						typeof location.href === "string" &&
+						location.href.length > 0;
+			});
+			check("location.protocol", function () {
+				return typeof location.protocol === "string" &&
+						location.protocol.indexOf(":") >= 0;
+			});
+			check("location.pathname", function () {
+				return typeof location.pathname === "string";
+			});
+			check("location.host/hostname", function () {
+				return typeof location.host === "string" &&
+						typeof location.hostname === "string";
+			});
+			check("location.search/hash/port", function () {
+				return typeof location.search === "string" &&
+						typeof location.hash === "string" &&
+						typeof location.port === "string";
+			});
+			check("location.origin", function () {
+				return typeof location.origin === "string";
+			});
+			check("location.assign/replace/reload", function () {
+				return typeof location.assign === "function" &&
+						typeof location.replace === "function" &&
+						typeof location.reload === "function";
+			});
+
+			check("navigator.userAgent", function () {
+				return typeof navigator !== "undefined" &&
+						typeof navigator.userAgent === "string" &&
+						navigator.userAgent.length > 0;
+			});
+			check("navigator.appName/CodeName", function () {
+				return typeof navigator.appName === "string" &&
+						typeof navigator.appCodeName === "string";
+			});
+			check("navigator.platform/product", function () {
+				return typeof navigator.platform === "string" &&
+						typeof navigator.product === "string";
+			});
+			check("navigator.cookieEnabled/onLine", function () {
+				return typeof navigator.cookieEnabled === "boolean" &&
+						typeof navigator.onLine === "boolean";
+			});
+			check("navigator.taintEnabled", function () {
+				return typeof navigator.taintEnabled === "function" &&
+						navigator.taintEnabled() === false;
+			});
+
+			check("document.getElementById", function () {
+				el = document.getElementById("js-smoke-out");
+				return el != null && el === out;
+			});
+			check("document.documentElement", function () {
+				return document.documentElement != null &&
+						document.documentElement.nodeType === 1;
+			});
+			check("document.head / body", function () {
+				return document.head != null && document.body != null;
+			});
+			check("document.title get/set", function () {
+				before = document.title;
+				document.title = "nami-smoke";
+				after = document.title;
+				document.title = before;
+				return after === "nami-smoke";
+			});
+			check("document.createElement", function () {
+				kid = document.createElement("div");
+				return kid != null && kid.nodeType === 1;
+			});
+			check("document.createTextNode", function () {
+				if (typeof document.createTextNode !== "function") {
+					return null;
+				}
+				txt = document.createTextNode("hi");
+				return txt != null && txt.nodeType === 3 &&
+						txt.nodeValue === "hi";
+			});
+			check("document.createDocumentFragment", function () {
+				if (typeof document.createDocumentFragment !== "function") {
+					return null;
+				}
+				frag = document.createDocumentFragment();
+				return frag != null;
+			});
+			check("document.createEvent", function () {
+				if (typeof document.createEvent !== "function") {
+					return null;
+				}
+				evt = document.createEvent("Event");
+				return evt != null;
+			});
+			check("document.implementation", function () {
+				return document.implementation != null &&
+						typeof document.implementation.hasFeature ===
+						"function";
+			});
+			check("document.location", function () {
+				return document.location === location ||
+						(document.location != null &&
+						document.location.href === location.href);
+			});
+
+			check("element.tagName / nodeName", function () {
+				el = document.getElementById("js-smoke-out");
+				return el != null && typeof el.tagName === "string" &&
+						el.tagName.length > 0 &&
+						el.nodeName === el.tagName;
+			});
+			check("element.nodeType", function () {
+				return out != null && out.nodeType === 1;
+			});
+			check("ownerDocument", function () {
+				return out != null && out.ownerDocument === document;
+			});
+
+			check("textContent set/get", function () {
+				if (!box) {
+					return false;
+				}
+				clearKids(box);
+				box.textContent = "smoke-ok";
+				return box.textContent === "smoke-ok";
+			});
+			check("textContent empty clears", function () {
+				if (!box) {
+					return false;
+				}
+				box.textContent = "x";
+				box.textContent = "";
+				return box.hasChildNodes() === false &&
+						box.firstChild == null;
+			});
+			check("innerHTML set/get", function () {
+				if (!box) {
+					return false;
+				}
+				clearKids(box);
+				box.innerHTML = "<b id=\"js-smoke-b\">z</b>";
+				return box.innerHTML.indexOf("js-smoke-b") >= 0 &&
+						box.innerHTML.indexOf("z") >= 0;
+			});
+
+			check("id / className", function () {
+				if (!box) {
+					return false;
+				}
+				box.id = "js-smoke-sandbox";
+				box.className = "js-smoke-sandbox tok";
+				return box.id === "js-smoke-sandbox" &&
+						box.className.indexOf("tok") >= 0;
+			});
+			check("get/set/has/removeAttribute", function () {
+				if (!box) {
+					return false;
+				}
+				box.setAttribute("data-x", "1");
+				return box.getAttribute("data-x") === "1" &&
+						box.hasAttribute("data-x") === true &&
+						(box.removeAttribute("data-x"),
+						box.hasAttribute("data-x") === false);
+			});
+
+			check("createElement + appendChild", function () {
+				if (!box || typeof document.createElement !== "function") {
+					return false;
+				}
+				clearKids(box);
+				kid = document.createElement("span");
+				kid.id = "js-smoke-kid";
+				kid.textContent = "kid";
+				box.appendChild(kid);
+				return box.firstChild === kid &&
+						document.getElementById("js-smoke-kid") === kid;
+			});
+			check("hasChildNodes / childNodes.length", function () {
+				return box != null && box.hasChildNodes() === true &&
+						box.childNodes != null &&
+						box.childNodes.length === 1;
+			});
+			check("firstChild / lastChild", function () {
+				return box != null && box.firstChild === kid &&
+						box.lastChild === kid;
+			});
+			check("parentNode === box", function () {
+				return kid != null && kid.parentNode === box;
+			});
+			check("parentElement", function () {
+				return kid != null && kid.parentElement === box;
+			});
+			check("NodeList.item === child", function () {
+				if (!box || !kid) {
+					return false;
+				}
+				list = box.childNodes;
+				if (!list || typeof list.item !== "function") {
+					return null;
+				}
+				return list.item(0) === kid && list[0] === kid;
+			});
+			check("NodeList length after append", function () {
+				if (!box || !kid) {
+					return false;
+				}
+				sib = document.createElement("i");
+				sib.id = "js-smoke-sib";
+				box.appendChild(sib);
+				list = box.childNodes;
+				return list.length === 2 && list.item(1) === sib &&
+						kid.nextSibling === sib &&
+						sib.previousSibling === kid;
+			});
+			check("first/lastElementChild", function () {
+				return box != null && box.firstElementChild === kid &&
+						box.lastElementChild === sib &&
+						box.childElementCount === 2;
+			});
+			check("insertBefore", function () {
+				if (!box || typeof box.insertBefore !== "function") {
+					return null;
+				}
+				n = document.createElement("u");
+				n.id = "js-smoke-u";
+				box.insertBefore(n, sib);
+				return box.childNodes.item(1) === n &&
+						n.nextSibling === sib;
+			});
+			check("replaceChild", function () {
+				if (!box || typeof box.replaceChild !== "function") {
+					return null;
+				}
+				n = document.createElement("b");
+				n.id = "js-smoke-repl";
+				box.replaceChild(n, document.getElementById("js-smoke-u"));
+				return document.getElementById("js-smoke-repl") === n &&
+						document.getElementById("js-smoke-u") == null;
+			});
+			check("cloneNode", function () {
+				if (!kid || typeof kid.cloneNode !== "function") {
+					return null;
+				}
+				n = kid.cloneNode(true);
+				return n != null && n !== kid && n.id === kid.id;
+			});
+			check("contains", function () {
+				return box != null && kid != null &&
+						typeof box.contains === "function" &&
+						box.contains(kid) === true &&
+						kid.contains(box) === false;
+			});
+			check("removeChild", function () {
+				if (!box) {
+					return false;
+				}
+				clearKids(box);
+				kid = document.createElement("span");
+				kid.id = "js-smoke-gone";
+				box.appendChild(kid);
+				box.removeChild(kid);
+				return document.getElementById("js-smoke-gone") == null &&
+						box.hasChildNodes() === false;
+			});
+			check("getElementsByTagName", function () {
+				if (!box || typeof box.getElementsByTagName !== "function") {
+					return null;
+				}
+				clearKids(box);
+				box.appendChild(document.createElement("p"));
+				box.appendChild(document.createElement("p"));
+				list = box.getElementsByTagName("p");
+				return list != null && list.length === 2;
+			});
+
+			check("classList add/contains/remove", function () {
+				if (!box || !box.classList) {
+					return null;
+				}
+				box.className = "js-smoke-sandbox";
+				box.classList.add("alpha");
+				return box.classList.contains("alpha") === true &&
+						(box.classList.remove("alpha"),
+						box.classList.contains("alpha") === false);
+			});
+			check("classList.toggle", function () {
+				if (!box || !box.classList ||
+						typeof box.classList.toggle !== "function") {
+					return null;
+				}
+				box.className = "js-smoke-sandbox";
+				box.classList.toggle("tok");
+				return box.classList.contains("tok") === true &&
+						(box.classList.toggle("tok"),
+						box.classList.contains("tok") === false);
+			});
+			check("attributes NamedNodeMap", function () {
+				if (!box || !box.attributes) {
+					return null;
+				}
+				box.setAttribute("data-m", "9");
+				map = box.attributes;
+				return map != null && map.length > 0 &&
+						typeof map.getNamedItem === "function" &&
+						map.getNamedItem("data-m") != null;
+			});
+
+			clicked = false;
+			handler = function () {
+				clicked = true;
+			};
+			check("addEventListener + click()", function () {
+				if (!box || typeof box.addEventListener !== "function") {
+					return false;
+				}
+				clearKids(box);
+				box.addEventListener("click", handler);
+				if (typeof box.click !== "function") {
+					return null;
+				}
+				box.click();
+				return clicked === true;
+			});
+			check("removeEventListener", function () {
+				if (!box || typeof box.removeEventListener !== "function") {
+					return false;
+				}
+				clicked = false;
+				box.removeEventListener("click", handler);
+				if (typeof box.click === "function") {
+					box.click();
+				}
+				return clicked === false;
+			});
+			check("dispatchEvent", function () {
+				if (!box || typeof box.dispatchEvent !== "function" ||
+						typeof document.createEvent !== "function") {
+					return null;
+				}
+				clicked = false;
+				handler = function () {
+					clicked = true;
+				};
+				box.addEventListener("click", handler);
+				evt = document.createEvent("Event");
+				if (evt && typeof evt.initEvent === "function") {
+					evt.initEvent("click", true, true);
+				}
+				box.dispatchEvent(evt);
+				box.removeEventListener("click", handler);
+				return clicked === true;
+			});
+
+			check("setTimeout/clearTimeout present", function () {
+				return typeof setTimeout === "function" &&
+						typeof clearTimeout === "function";
+			});
+			check("setInterval/clearInterval present", function () {
+				return typeof setInterval === "function" &&
+						typeof clearInterval === "function";
+			});
+
+			paint();
+
+			if (typeof setTimeout !== "function") {
+				row(null, "setTimeout fires", "no setTimeout");
+				row(null, "clearTimeout cancels", "no setTimeout");
+				row(null, "setInterval fires", "no setInterval");
+				paint();
+				return;
+			}
+
+			pending++;
+			paint();
+			t1 = setTimeout(function () {
+				pending--;
+				row(true, "setTimeout fires", "callback ran");
+				paint();
+			}, 50);
+
+			pending++;
+			t2 = setTimeout(function () {
+				pending--;
+				row(false, "clearTimeout cancels", "callback should not run");
+				paint();
+			}, 80);
+			clearTimeout(t2);
+			pending--;
+			row(true, "clearTimeout cancels", "cancelled before fire");
+			paint();
+
+			if (typeof setInterval === "function") {
+				pending++;
+				n = 0;
+				t3 = setInterval(function () {
+					n++;
+					if (n >= 2) {
+						clearInterval(t3);
+						pending--;
+						row(true, "setInterval fires", "ticks=" + n);
+						paint();
+					}
+				}, 40);
+			} else {
+				row(null, "setInterval fires", "unavailable");
+			}
+
+			if (typeof console !== "undefined" && console.log) {
+				console.log("nami smoke finished sync: " +
+						pass + " pass, " + fail + " fail");
+			}
+		}
+
+		if (!out || !btn) {
+			return;
+		}
+
+		btn.addEventListener("click", function () {
+			runSmoke();
+		});
+		runSmoke();
+	})();
+	</script>
+</div>
+
 <div class="footer">
 	<p>Nami is based on NetSurf and licensed under the GNU General Public Licence version&nbsp;2 · <a href="netsurf/welcome.html">View archived NetSurf welcome page</a></p>
 </div>

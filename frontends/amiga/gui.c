@@ -453,6 +453,8 @@ static char *users_dir = NULL;
 static char *current_user_dir;
 static char *current_user_faviconcache;
 
+/* Stack for the NetSurf task. QuickJS work uses a lean context
+ * (NewContextRaw + base/eval/json) so it fits without a huge cookie. */
 static const char *stack_cookie = "\0$STACK:196608\0";
 
 const char * const versvn;
@@ -2732,6 +2734,8 @@ static void gui_init2(int argc, char** argv)
 	    (nsoption_bool(startup_no_window) == false))
 		ami_openscreenfirst();
 
+	NSLOG(netsurf, INFO, "gui_init2: after openscreen, creating browser");
+
 	/* Shell URLs from ReadArgs URL/M */
 	if(cli_url_count > 0 && notalreadyrunning) {
 		int i;
@@ -2936,6 +2940,7 @@ static void gui_init2(int argc, char** argv)
 	}
 #endif
 	if(!bw && (nsoption_bool(startup_no_window) == false)) {
+		NSLOG(netsurf, INFO, "gui_init2: homepage browser_window_create");
 		error = nsurl_create(nsoption_charp(homepage_url), &url);
 		if (error == NSERROR_OK) {
 			error = browser_window_create(BW_CREATE_HISTORY,
@@ -2945,10 +2950,13 @@ static void gui_init2(int argc, char** argv)
 						      NULL);
 			nsurl_unref(url);
 		}
+		NSLOG(netsurf, INFO, "gui_init2: homepage create done (%d)",
+				(int)error);
 		if (error != NSERROR_OK) {
 			amiga_warn_user(messages_get_errorcode(error), 0);
 		}
 	}
+	NSLOG(netsurf, INFO, "gui_init2: finished");
 }
 
 /**
@@ -3019,41 +3027,42 @@ static void ami_gui_path_aiss_suffix(char *dst, size_t dstsz,
 
 /**
  * Toolbar icon enable/disable + Nami hover/press art.
- * OS3 bitmap.image has no Disabled/Hover source tags; we swap
- * BUTTON_RenderImage among normal / _s / _h / _g BitMapObjs.
- * Idle: no bevel. Pressed: recessed BVS_FIELD (not raised, no blue fill).
+ * Idle: normal glyph, no selection fill.
+ * Hover: button.gadget blue highlight (GA_Selected), normal glyph.
+ * Pressed: keep highlight and swap to AISS _s glyph.
+ * Ghosted (_g): no hover/press highlight.
  */
 static void ami_gui_tb_apply_nami_button(struct gui_window_2 *gwin, ULONG gid,
 		ULONG bm_normal, ULONG bm_sel, ULONG bm_hov, ULONG bm_ghost,
 		BOOL ghosted)
 {
 	Object *bm;
-	ULONG bevel;
+	ULONG selected;
+
+	(void)bm_hov;
 
 	if(gwin == NULL || gwin->objects[gid] == NULL)
 		return;
 
 	bm = gwin->objects[bm_normal];
-	bevel = BVS_NONE;
+	selected = FALSE;
 
 	if(ghosted) {
 		if(gwin->objects[bm_ghost] != NULL)
 			bm = gwin->objects[bm_ghost];
 	} else if(gwin->tb_armed_gid == (WORD)gid) {
-		bevel = BVS_FIELD;
+		selected = TRUE;
 		if(gwin->objects[bm_sel] != NULL)
 			bm = gwin->objects[bm_sel];
 	} else if(gwin->tb_hover_gid == (WORD)gid) {
-		if(gwin->objects[bm_hov] != NULL)
-			bm = gwin->objects[bm_hov];
+		selected = TRUE;
 	}
 
 	RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[gid],
 			gwin->win, NULL,
 			BUTTON_RenderImage, bm,
-			BUTTON_BevelStyle, bevel,
-			BUTTON_Transparent, TRUE,
-			GA_Selected, FALSE,
+			BUTTON_BevelStyle, BVS_NONE,
+			GA_Selected, selected,
 			GA_ReadOnly, ghosted ? TRUE : FALSE,
 			GA_Disabled, FALSE,
 			TAG_DONE);
@@ -3162,7 +3171,6 @@ static WORD ami_gui_tb_hit(struct gui_window_2 *gwin)
 static void ami_gui_tb_refresh_gid(struct gui_window_2 *gwin, WORD gid)
 {
 	BOOL ghosted;
-	ULONG bevel;
 
 	if(gwin == NULL || gid == 0)
 		return;
@@ -3207,21 +3215,19 @@ static void ami_gui_tb_refresh_gid(struct gui_window_2 *gwin, WORD gid)
 		}
 		break;
 	case GID_PAGEINFO:
-		bevel = (gwin->tb_armed_gid == GID_PAGEINFO) ? BVS_FIELD : BVS_NONE;
+		/* Highlight only — no dedicated _s art for padlock glyphs */
 		RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[GID_PAGEINFO],
 				gwin->win, NULL,
-				BUTTON_BevelStyle, bevel,
-				BUTTON_Transparent, TRUE,
-				GA_Selected, FALSE,
+				BUTTON_BevelStyle, BVS_NONE,
+				GA_Selected,
+					(gwin->tb_armed_gid == GID_PAGEINFO ||
+					 gwin->tb_hover_gid == GID_PAGEINFO)
+						? TRUE : FALSE,
 				TAG_DONE);
 		break;
 	case GID_ICON:
-		bevel = (gwin->tb_armed_gid == GID_ICON) ? BVS_FIELD : BVS_NONE;
-		RefreshSetGadgetAttrs((struct Gadget *)gwin->objects[GID_ICON],
-				gwin->win, NULL,
-				SPACE_BevelStyle, bevel,
-				TAG_DONE);
-		if(bevel == BVS_NONE && gwin->gw != NULL)
+		/* space.gadget has no select fill; redraw slot contents */
+		if(gwin->gw != NULL)
 			gui_window_set_icon(gwin->gw, gwin->gw->favicon);
 		break;
 	default:
@@ -6188,6 +6194,8 @@ void ami_quit_netsurf(void)
 	struct nsObject *nnode;
 	struct ami_generic_window *w;
 
+	NSLOG(netsurf, INFO, "ami_quit_netsurf");
+
 	/* Disable the multiple tabs open warning */
 	nsoption_set_bool(tab_close_warn, false);
 
@@ -7864,8 +7872,6 @@ gui_window_create(struct browser_window *bw,
 			ULONG inner_sp_val = 0;
 			ULONG btn_bevel_tag = TAG_IGNORE;
 			ULONG btn_bevel_val = 0;
-			ULONG btn_trans_tag = TAG_IGNORE;
-			ULONG btn_trans_val = 0;
 			ULONG chrome_add = TAG_IGNORE;
 			ULONG chrome_wh = TAG_IGNORE;
 			ULONG tl_add = LAYOUT_AddChild;
@@ -7936,13 +7942,10 @@ gui_window_create(struct browser_window *bw,
 				space_outer = FALSE;
 				inner_sp_tag = LAYOUT_InnerSpacing;
 				inner_sp_val = 0;
-				/* Toolbar image buttons: no bevel; string gadgets keep theirs.
-				 * Transparent avoids selected blue fill — Nami drives recessed
-				 * BVS_FIELD + _s/_h art itself. */
+				/* Toolbar image buttons: no raised bevel. Hover/press
+				 * use GA_Selected fill + (_s on press) via ami_gui_tb_*. */
 				btn_bevel_tag = BUTTON_BevelStyle;
 				btn_bevel_val = BVS_NONE;
-				btn_trans_tag = BUTTON_Transparent;
-				btn_trans_val = TRUE;
 				/* 16px art with room around each nav button */
 				nav_mw_tag = CHILD_MinWidth;
 				nav_mw = 24;
@@ -8145,7 +8148,6 @@ gui_window_create(struct browser_window *bw,
 					GA_RelVerify, TRUE,
 					GA_HintInfo, g->shared->helphints[GID_HOME],
 					btn_bevel_tag, btn_bevel_val,
-					btn_trans_tag, btn_trans_val,
 					BUTTON_RenderImage, g->shared->objects[GID_HOME_BM],
 				ButtonEnd;
 				g->shared->objects[GID_HOME] = home_btn;
@@ -8165,7 +8167,6 @@ gui_window_create(struct browser_window *bw,
 					GA_RelVerify, TRUE,
 					GA_HintInfo, g->shared->helphints[GID_STOP],
 					btn_bevel_tag, btn_bevel_val,
-					btn_trans_tag, btn_trans_val,
 					BUTTON_RenderImage, g->shared->objects[GID_STOP_BM],
 				ButtonEnd;
 				g->shared->objects[GID_STOP] = stop_btn;
@@ -8269,7 +8270,6 @@ gui_window_create(struct browser_window *bw,
 						GA_ContextMenu, ami_ctxmenu_history_create(AMI_CTXMENU_HISTORY_BACK, g->shared),
 						GA_HintInfo, g->shared->helphints[GID_BACK],
 						btn_bevel_tag, btn_bevel_val,
-						btn_trans_tag, btn_trans_val,
 						BUTTON_RenderImage, back_init_bm,
 					ButtonEnd,
 					CHILD_WeightedWidth,0,
@@ -8283,7 +8283,6 @@ gui_window_create(struct browser_window *bw,
 						GA_ContextMenu, ami_ctxmenu_history_create(AMI_CTXMENU_HISTORY_FORWARD, g->shared),
 						GA_HintInfo, g->shared->helphints[GID_FORWARD],
 						btn_bevel_tag, btn_bevel_val,
-						btn_trans_tag, btn_trans_val,
 						BUTTON_RenderImage, fwd_init_bm,
 					ButtonEnd,
 					CHILD_WeightedWidth,0,
@@ -8298,7 +8297,6 @@ gui_window_create(struct browser_window *bw,
 						GA_RelVerify,TRUE,
 						GA_HintInfo, g->shared->helphints[GID_RELOAD],
 						btn_bevel_tag, btn_bevel_val,
-						btn_trans_tag, btn_trans_val,
 						BUTTON_RenderImage, g->shared->objects[GID_RELOAD_BM],
 					ButtonEnd,
 					CHILD_WeightedWidth,0,
@@ -8352,7 +8350,6 @@ gui_window_create(struct browser_window *bw,
 							GA_RelVerify, TRUE,
 							GA_ReadOnly, FALSE,
 							btn_bevel_tag, btn_bevel_val,
-							btn_trans_tag, btn_trans_val,
 							BUTTON_RenderImage, g->shared->objects[GID_PAGEINFO_INTERNAL_BM],
 						ButtonEnd,
 						CHILD_WeightedWidth, 0,
@@ -10064,6 +10061,14 @@ int main(int argc, char** argv)
 	if (nsoption_int(max_cached_fetch_handles) > 2) {
 		nsoption_set_int(max_cached_fetch_handles, 2);
 	}
+	/*
+	 * Old Choices may still have the desktop 25 cs reflow period.
+	 * Floor at Amiga default (100 cs) so incremental layout is not
+	 * thrashed while images arrive.
+	 */
+	if (nsoption_uint(min_reflow_period) < 100) {
+		nsoption_set_uint(min_reflow_period, 100);
+	}
 #endif
 	if(args != NULL) {
 		nsoption_commandline(&nargc, nargv, NULL);
@@ -10191,7 +10196,9 @@ int main(int argc, char** argv)
 
 	ami_mime_free();
 
+	NSLOG(netsurf, INFO, "Leaving main loop, netsurf_exit");
 	netsurf_exit();
+	NSLOG(netsurf, INFO, "netsurf_exit returned");
 
 	nsoption_finalise(nsoptions, nsoptions_default);
 	ami_nsoption_free();

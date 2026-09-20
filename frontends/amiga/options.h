@@ -19,7 +19,12 @@
 #ifndef AMIGA_OPTIONS_H
 #define AMIGA_OPTIONS_H
 
-/* currently nothing here */
+/*
+ * Longer default between incremental reflows while objects load.
+ * Matches RISC OS (100 cs); classic Amiga layout is expensive enough that
+ * the desktop default of 25 cs causes thrashing during image arrival.
+ */
+#define DEFAULT_REFLOW_PERIOD 100 /* time in cs */
 
 #endif
 
@@ -55,7 +60,8 @@ NSOPTION_BOOL(download_notify, true)
 NSOPTION_BOOL(download_notify_progress, false)
 NSOPTION_BOOL(faster_scroll, true)
 NSOPTION_BOOL(scale_quality, false)
-NSOPTION_INTEGER(dither_quality, 2)
+/* 0=Low (fast), 1=Medium, 2=High — maps to picture.datatype Remap tags */
+NSOPTION_INTEGER(dither_quality, 0)
 NSOPTION_INTEGER(mask_alpha, 0)
 NSOPTION_BOOL(ask_overwrite, true)
 NSOPTION_INTEGER(printer_unit, 0)

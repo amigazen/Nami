@@ -101,6 +101,15 @@ bool ami_bitmap_is_nativebm(struct bitmap *bm, struct BitMap *nbm);
 void ami_bitmap_fini(void);
 
 /**
+ * Map Preferences Dither Quality / Scale Quality onto picture.datatype tags.
+ * dither_quality: 0=Low, 1=Medium, 2=High (same as Options chooser).
+ */
+ULONG ami_dt_precision(void);
+ULONG ami_dt_dither_quality(void);
+ULONG ami_dt_max_dither_pens(void);
+ULONG ami_dt_scale_quality(void);
+
+/**
  * Create a bitmap.
  *
  * \param  width   width of image in pixels

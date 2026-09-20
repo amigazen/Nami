@@ -483,6 +483,7 @@ html_create_html_data(html_content *c, const http_parameter *params)
 	c->stylesheets = NULL;
 	c->author_css_pending = 0;
 	c->css_restyle_pending = false;
+	c->reflow_pending = false;
 	c->select_ctx = NULL;
 	c->media.type = CSS_MEDIA_SCREEN;
 	c->universal = NULL;

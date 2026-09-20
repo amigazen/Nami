@@ -432,6 +432,49 @@ dl.components > dd > span + span {
 	color: #9e3f32;
 }
 
+.js-demo-out {
+	margin: 0.8em 0;
+	padding: 0.6em 0.8em;
+	background: #fff8f2;
+	border: 2px solid #c45c4a;
+	font-weight: bold;
+}
+
+.js-demo-btn {
+	display: block;
+	width: 10em;
+	margin: 0.4em 0;
+	padding: 0.5em 0.9em;
+	color: #fff8f2;
+	background: #c45c4a;
+	border: 2px solid #9e3f32;
+	font-weight: bold;
+	text-align: center;
+	cursor: pointer;
+}
+
+.js-smoke-out {
+	margin: 0.8em 0;
+	padding: 0.6em 0.8em;
+	background: #1a2332;
+	border: 2px solid #2a3a4e;
+	color: #e8eef4;
+	font-family: "Courier New", "Bitstream Vera Sans Mono", "Topaz", monospace;
+	font-size: 85%;
+	line-height: 1.45;
+	white-space: pre-wrap;
+	overflow: auto;
+	max-height: 32em;
+}
+
+.js-smoke-sandbox {
+	position: absolute;
+	left: -9999px;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+}
+
 .kicker {
 	font-family: "Courier New", "Bitstream Vera Sans Mono", "Topaz", monospace;
 	font-size: 85%;

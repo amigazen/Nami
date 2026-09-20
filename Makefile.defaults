@@ -72,9 +72,23 @@ NETSURF_USE_VIDEO := NO
 # Valid options: YES, NO, AUTO
 NETSURF_USE_WEBP := AUTO
 
-# Enable NetSurf's use of duktape for javascript
+# JavaScript engine selection
+# Valid options: none, duktape, quickjs_amiga
+#   none          — stub; enable_javascript forced off
+#   duktape       — embed Duktape (default for non-Amiga hosts)
+#   quickjs_amiga — Amiga OS3 vbcc (VMakefile) only; OpenLibrary
+#                   ("quickjs.library") LVO client from nea-quickjs.
+#                   Does not compile the engine into NetSurf.
+NETSURF_JS_ENGINE := duktape
+
+# Legacy shim: YES → duktape, NO → none (used only when NETSURF_JS_ENGINE
+# is unset in the javascript Makefile)
 # Valid options: YES, NO
 NETSURF_USE_DUKTAPE := YES
+
+# Root of the nea-quickjs tree (headers + LVO bridge sources) for quickjs_amiga.
+# On Amiga use /nea-quickjs (parent of the netsurf dir); on Unix hosts ../nea-quickjs.
+NETSURF_QUICKJS_AMIGA_ROOT := ../nea-quickjs
 
 # Enable NetSurf's use of libharu for PDF export and GTK printing support.
 # There is no auto-detection available for this, as it does not have a

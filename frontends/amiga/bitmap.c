@@ -41,7 +41,10 @@
 #define PDTA_ScaleQuality	TAG_IGNORE
 #endif
 #ifndef PDTA_DitherQuality
-#define PDTA_DitherQuality	TAG_IGNORE
+#define PDTA_DitherQuality	(DTA_Dummy + 222)
+#endif
+#ifndef PDTA_MaxDitherPens
+#define PDTA_MaxDitherPens	(DTA_Dummy + 221)
 #endif
 #ifndef PDTA_AlphaChannel
 #define PDTA_AlphaChannel	(DTA_Dummy + 256)
@@ -147,6 +150,57 @@ struct vertex {
 
 static APTR pool_bitmap = NULL;
 static bool guigfx_warned = false;
+
+/* exported — documented in amiga/bitmap.h */
+ULONG ami_dt_precision(void)
+{
+	int q;
+
+	q = nsoption_int(dither_quality);
+	if (q <= 0) {
+		return (ULONG)PRECISION_GUI;
+	}
+	if (q == 1) {
+		return (ULONG)PRECISION_ICON;
+	}
+	return (ULONG)PRECISION_IMAGE;
+}
+
+/* exported — documented in amiga/bitmap.h */
+ULONG ami_dt_dither_quality(void)
+{
+	int q;
+
+	q = nsoption_int(dither_quality);
+	if (q <= 0) {
+		return 0UL;
+	}
+	if (q == 1) {
+		return 1UL;
+	}
+	return 2UL;
+}
+
+/* exported — documented in amiga/bitmap.h */
+ULONG ami_dt_max_dither_pens(void)
+{
+	int q;
+
+	q = nsoption_int(dither_quality);
+	if (q <= 0) {
+		return 16UL;
+	}
+	if (q == 1) {
+		return 32UL;
+	}
+	return 125UL; /* picture.datatype default */
+}
+
+/* exported — documented in amiga/bitmap.h */
+ULONG ami_dt_scale_quality(void)
+{
+	return nsoption_bool(scale_quality) ? 1UL : 0UL;
+}
 
 /* exported function documented in amiga/bitmap.h */
 void *amiga_bitmap_create(int width, int height, enum gui_bitmap_flags flags)
@@ -559,8 +613,7 @@ Object *ami_datatype_object_from_bitmap(struct bitmap *bitmap)
 					DTA_SourceType,DTST_RAM,
 					DTA_GroupID,GID_PICTURE,
 					PDTA_DestMode,PMODE_V43,
-					PDTA_ScaleQuality,
-						nsoption_bool(scale_quality) ? 1 : 0,
+					PDTA_ScaleQuality, ami_dt_scale_quality(),
 					TAG_DONE)))
 	{
 		if(GetDTAttrs(dto,PDTA_BitMapHeader,&bmhd,TAG_DONE))
@@ -631,8 +684,7 @@ struct bitmap *ami_bitmap_from_datatype(char *filename)
 					DTA_GroupID, GID_PICTURE,
 					PDTA_DestMode, PMODE_V43,
 					PDTA_PromoteMask, TRUE,
-					PDTA_ScaleQuality,
-						nsoption_bool(scale_quality) ? 1 : 0,
+					PDTA_ScaleQuality, ami_dt_scale_quality(),
 					TAG_DONE))) {
 		struct BitMapHeader *bmh;
 		BOOL has_alpha = FALSE;
@@ -713,7 +765,8 @@ static void ami_bitmap_preblend_argb(ULONG *dst, const ULONG *src,
 
 /**
  * Soft ARGB → native BitMap via picture.datatype Remap against the screen
- * colormap (ObtainBestPen / PRECISION_IMAGE).
+ * colormap. Precision / dither / pens follow Preferences Dither Quality;
+ * Scale Quality drives PDTA_ScaleQuality.
  * Keep dto on the bitmap so allocated pens stay owned while nativebm lives.
  *
  * Order matters on OS3: do not attach PDTA_Screen until after the ARGB
@@ -852,20 +905,22 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 		      bitmap->opaque ? 1 : 0);
 	}
 
-	ditherq = 1;
-	if (nsoption_int(dither_quality) == 0) {
-		ditherq = 0;
-	} else if (nsoption_int(dither_quality) >= 2) {
-		ditherq = 2;
-	}
+	ditherq = ami_dt_dither_quality();
 
 	NSLOG(netsurf, DEBUG,
-	      "ami_bitmap_get_picturedt: NewDTObject %lux%lu -> %dx%d",
-	      (unsigned long)sw, (unsigned long)sh, width, height);
+	      "ami_bitmap_get_picturedt: NewDTObject %lux%lu -> %dx%d "
+	      "(dither=%lu pens=%lu prec=%lu scaleq=%lu)",
+	      (unsigned long)sw, (unsigned long)sh, width, height,
+	      (unsigned long)ditherq,
+	      (unsigned long)ami_dt_max_dither_pens(),
+	      (unsigned long)ami_dt_precision(),
+	      (unsigned long)ami_dt_scale_quality());
 
 	/* Same create tags as the soft-buffer path; Remap is Init-only (I).
 	 * Screen / dither applied after pixels exist (see autodoc note on
 	 * passing PDTA_Screen before or with DTM_PROCLAYOUT).
+	 * PDTM_SCALE runs before PROCLAYOUT (required by picture.datatype).
+	 * Quality follows Preferences Dither / Scale Quality.
 	 */
 	dto = NewDTObject(NULL,
 			DTA_SourceType, DTST_RAM,
@@ -877,9 +932,9 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 			 * blend buffer / wrong pointer (MemList corrupt). */
 			PDTA_FreeSourceBitMap, FALSE,
 			PDTA_UseFriendBitMap, FALSE,
-			OBP_Precision, PRECISION_IMAGE,
-			PDTA_ScaleQuality,
-				nsoption_bool(scale_quality) ? 1 : 0,
+			OBP_Precision, ami_dt_precision(),
+			PDTA_ScaleQuality, ami_dt_scale_quality(),
+			PDTA_MaxDitherPens, ami_dt_max_dither_pens(),
 			TAG_DONE);
 
 	if (dto == NULL) {
@@ -935,6 +990,7 @@ static inline struct BitMap *ami_bitmap_get_picturedt(struct bitmap *bitmap,
 	SetDTAttrs(dto, NULL, NULL,
 			PDTA_Screen, scrn,
 			PDTA_DitherQuality, ditherq,
+			PDTA_MaxDitherPens, ami_dt_max_dither_pens(),
 			TAG_DONE);
 
 	NSLOG(netsurf, DEBUG,
@@ -1146,7 +1202,7 @@ static inline struct BitMap *ami_bitmap_get_guigfx(struct bitmap *bitmap,
 		 * crashes inside render.library Render().
 		 */
 		odh_tags[0].ti_Tag = OBP_Precision;
-		odh_tags[0].ti_Data = PRECISION_IMAGE;
+		odh_tags[0].ti_Data = ami_dt_precision();
 		odh_tags[1].ti_Tag = GGFX_DitherMode;
 		odh_tags[1].ti_Data = dithermode;
 		odh_tags[2].ti_Tag = GGFX_AutoDither;
@@ -1299,13 +1355,15 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 	if(tbm == NULL) {
 #ifndef __amigaos4__
 		/*
-		 * Remap at the blit size (not always intrinsic). 2× assets
-		 * displayed at half size were Remapping full-res then
-		 * BitScale — Remap once at width×height instead.
+		 * Remap once at soft intrinsic size; BitScale for other plot
+		 * sizes. Remapping at every blit size was a second full
+		 * DTM_PROCLAYOUT per size (on top of decode layout).
 		 */
-		tbm = ami_bitmap_get_picturedt(bitmap, width, height,
-				friendbm, type, bg);
-		return tbm;
+		tbm = ami_bitmap_get_picturedt(bitmap, bitmap->width,
+				bitmap->height, friendbm, type, bg);
+		if (tbm == NULL) {
+			return NULL;
+		}
 #else
 		if(type == AMI_NSBM_PALETTEMAPPED)
 			return ami_bitmap_get_guigfx(bitmap, width, height, friendbm, type, bg);
@@ -1333,7 +1391,7 @@ static inline struct BitMap *ami_bitmap_get_generic(struct bitmap *bitmap,
 	}
 
 #ifndef __amigaos4__
-	/* Cached full-size Remap — BitScale for other plot sizes */
+	/* Cached intrinsic Remap — BitScale for other plot sizes */
 	if ((bitmap->nativebmwidth == width) &&
 	    (bitmap->nativebmheight == height)) {
 		return tbm;

@@ -7,6 +7,11 @@
 # Sibling netsurf libs (css.lib, etc.) are copied into build/vbcc-os3/lib
 # before linking so -L points at a local ready-to-link set.
 #
+# JavaScript uses LIBS:quickjs.library (nea-quickjs LVO client). The
+# library is opened on first script context, not at startup. Contexts
+# are created lean (NewContextRaw + base/eval/json) so the normal
+# 192KB $STACK cookie in gui.c is enough on the new-window path.
+#
 #   make -f VMakefile
 #   make -f VMakefile clean
 #
@@ -16,6 +21,12 @@
 all: NetSurf
 
 LIBDIR = build/vbcc-os3/lib
+
+# JavaScript: Amiga quickjs.library LVO client (nea-quickjs), not Duktape.
+NETSURF_QUICKJS_AMIGA_ROOT = /nea-quickjs
+QJSROOT = $(NETSURF_QUICKJS_AMIGA_ROOT)
+QJSVBCC = $(QJSROOT)/library/vbcc
+VASM = vasmm68k_mot
 
 VCFLAGS = +aos68k_posix -c99 -Dnsamiga -D__AMIGA__ -D_AMIGA -DPATH_MAX=1024 -cpu=68020 -DNDEBUG \
 	-DWITH_HUBBUB -DWITH_AMIGA_ICON -DWITH_AMIGA_DATATYPES -DWITH_AMIHTTP \
@@ -43,6 +54,14 @@ VCFLAGS = +aos68k_posix -c99 -Dnsamiga -D__AMIGA__ -D_AMIGA -DPATH_MAX=1024 -cpu
 	-ISDK:Include_h \
 	-Ivbcc:ns-vbcc/include \
 	-INDK:Include/include_h
+
+# Only for quickjs_amiga/js.c and the LVO bridge. Do not put these on
+# global VCFLAGS — nea-quickjs/include/dirent.h conflicts with PosixLib
+# NAME_MAX when compiling frontends/amiga/gui.c and friends.
+QJSCFLAGS = -DQJS_USE_LIBRARY -DJS_NAN_BOXING=0 \
+	-I$(QJSROOT)/quickjs-master \
+	-I$(QJSROOT)/include \
+	-I$(QJSVBCC)
 
 # Local staged .lib in $(LIBDIR). Do not use -lauto (PosixLib SocketBase clash).
 # +aos68k_posix already adds -lposix -lvc -lamiga and math.

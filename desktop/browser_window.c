@@ -1642,6 +1642,19 @@ browser_window_callback(hlcache_handle *c, const hlcache_event *event, void *pw)
 			jsthread *thread;
 			assert(bw->loading_content == c);
 
+			/*
+			 * Window may have been created with JavaScript off
+			 * (jsheap NULL). Create the heap shell now if the
+			 * option was enabled before this reload.
+			 */
+			if (bw->jsheap == NULL) {
+				if (js_newheap(nsoption_int(script_timeout),
+						&bw->jsheap) != NSERROR_OK ||
+						bw->jsheap == NULL) {
+					break;
+				}
+			}
+
 			if (js_newthread(bw->jsheap,
 					 bw,
 					 hlcache_handle_get_content(c),

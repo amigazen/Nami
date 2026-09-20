@@ -15,8 +15,21 @@ OBJS = \
 	build/vbcc-os3/content_handlers_css_internal.o \
 	build/vbcc-os3/content_handlers_css_hints.o \
 	build/vbcc-os3/content_handlers_css_select.o \
-	build/vbcc-os3/content_handlers_javascript_none_none.o \
+	build/vbcc-os3/content_handlers_javascript_quickjs_amiga_js.o \
+	build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind.o \
+	build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_node.o \
+	build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_list.o \
+	build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_win.o \
+	build/vbcc-os3/content_handlers_javascript_quickjs_amiga_dom_sync.o \
+	build/vbcc-os3/content_handlers_javascript_content.o \
 	build/vbcc-os3/content_handlers_javascript_fetcher.o \
+	build/vbcc-os3/qjs_bridge_quickjs_bridge.o \
+	build/vbcc-os3/qjs_bridge_a6.o \
+	build/vbcc-os3/qjs_bridge_dpvs.o \
+	build/vbcc-os3/qjs_bridge_asm.o \
+	build/vbcc-os3/qjs_bridge_asm_batch1.o \
+	build/vbcc-os3/qjs_bridge_asm_batch2.o \
+	build/vbcc-os3/qjs_bridge_asm_libc.o \
 	build/vbcc-os3/content_handlers_html_box_construct.o \
 	build/vbcc-os3/content_handlers_html_box_inspect.o \
 	build/vbcc-os3/content_handlers_html_box_manipulate.o \
@@ -226,11 +239,55 @@ build/vbcc-os3/content_handlers_css_hints.o: content/handlers/css/hints.c
 build/vbcc-os3/content_handlers_css_select.o: content/handlers/css/select.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_css_select.o content/handlers/css/select.c
 
-build/vbcc-os3/content_handlers_javascript_none_none.o: content/handlers/javascript/none/none.c
-	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_none_none.o content/handlers/javascript/none/none.c
+QJS_PRIV = content/handlers/javascript/quickjs_amiga/private.h \
+	content/handlers/javascript/quickjs_amiga/bind_priv.h \
+	content/handlers/javascript/quickjs_amiga/bind.h
+
+build/vbcc-os3/content_handlers_javascript_quickjs_amiga_js.o: content/handlers/javascript/quickjs_amiga/js.c $(QJS_PRIV)
+	vc $(VCFLAGS) $(QJSCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_quickjs_amiga_js.o content/handlers/javascript/quickjs_amiga/js.c
+
+build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind.o: content/handlers/javascript/quickjs_amiga/bind.c $(QJS_PRIV)
+	vc $(VCFLAGS) $(QJSCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind.o content/handlers/javascript/quickjs_amiga/bind.c
+
+build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_node.o: content/handlers/javascript/quickjs_amiga/bind_node.c $(QJS_PRIV)
+	vc $(VCFLAGS) $(QJSCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_node.o content/handlers/javascript/quickjs_amiga/bind_node.c
+
+build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_list.o: content/handlers/javascript/quickjs_amiga/bind_list.c $(QJS_PRIV)
+	vc $(VCFLAGS) $(QJSCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_list.o content/handlers/javascript/quickjs_amiga/bind_list.c
+
+build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_win.o: content/handlers/javascript/quickjs_amiga/bind_win.c $(QJS_PRIV)
+	vc $(VCFLAGS) $(QJSCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_quickjs_amiga_bind_win.o content/handlers/javascript/quickjs_amiga/bind_win.c
+
+build/vbcc-os3/content_handlers_javascript_quickjs_amiga_dom_sync.o: content/handlers/javascript/quickjs_amiga/dom_sync.c $(QJS_PRIV)
+	vc $(VCFLAGS) $(QJSCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_quickjs_amiga_dom_sync.o content/handlers/javascript/quickjs_amiga/dom_sync.c
+
+build/vbcc-os3/content_handlers_javascript_content.o: content/handlers/javascript/content.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_content.o content/handlers/javascript/content.c
 
 build/vbcc-os3/content_handlers_javascript_fetcher.o: content/handlers/javascript/fetcher.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_javascript_fetcher.o content/handlers/javascript/fetcher.c
+
+# nea-quickjs LVO client bridge (engine stays in LIBS:quickjs.library)
+build/vbcc-os3/qjs_bridge_quickjs_bridge.o: $(QJSVBCC)/quickjs_bridge.c
+	vc $(VCFLAGS) $(QJSCFLAGS) -c -o build/vbcc-os3/qjs_bridge_quickjs_bridge.o $(QJSVBCC)/quickjs_bridge.c
+
+build/vbcc-os3/qjs_bridge_a6.o: $(QJSVBCC)/bridge_a6.s
+	$(VASM) -Fhunk -nowarn=62 -m68020 -o build/vbcc-os3/qjs_bridge_a6.o $(QJSVBCC)/bridge_a6.s
+
+build/vbcc-os3/qjs_bridge_dpvs.o: $(QJSVBCC)/bridge_dpvs.s
+	$(VASM) -Fhunk -nowarn=62 -m68020 -o build/vbcc-os3/qjs_bridge_dpvs.o $(QJSVBCC)/bridge_dpvs.s
+
+build/vbcc-os3/qjs_bridge_asm.o: $(QJSVBCC)/bridge_asm.s
+	$(VASM) -Fhunk -nowarn=62 -m68020 -o build/vbcc-os3/qjs_bridge_asm.o $(QJSVBCC)/bridge_asm.s
+
+build/vbcc-os3/qjs_bridge_asm_batch1.o: $(QJSVBCC)/bridge_asm_batch1.s
+	$(VASM) -Fhunk -nowarn=62 -m68020 -o build/vbcc-os3/qjs_bridge_asm_batch1.o $(QJSVBCC)/bridge_asm_batch1.s
+
+build/vbcc-os3/qjs_bridge_asm_batch2.o: $(QJSVBCC)/bridge_asm_batch2.s
+	$(VASM) -Fhunk -nowarn=62 -m68020 -o build/vbcc-os3/qjs_bridge_asm_batch2.o $(QJSVBCC)/bridge_asm_batch2.s
+
+build/vbcc-os3/qjs_bridge_asm_libc.o: $(QJSVBCC)/bridge_asm_libc.s
+	$(VASM) -Fhunk -nowarn=62 -m68020 -o build/vbcc-os3/qjs_bridge_asm_libc.o $(QJSVBCC)/bridge_asm_libc.s
 
 build/vbcc-os3/content_handlers_html_box_construct.o: content/handlers/html/box_construct.c content/handlers/html/private.h
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_handlers_html_box_construct.o content/handlers/html/box_construct.c

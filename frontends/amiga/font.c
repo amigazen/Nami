@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <stdint.h>
 
 #include "amiga/os3support.h"
 
@@ -265,8 +266,59 @@ void ami_font_init(void)
 	NSLOG(netsurf, INFO, "ami_font_init: engine=bullet");
 }
 
+/*
+ * String-width memoization for layout. Layout calls width() repeatedly for
+ * the same fragments during minmax and position passes; Amiga font engines
+ * (bullet / diskfont / ttengine) are expensive enough that a small cache
+ * pays for itself. Glyph caches in the engines still help on misses.
+ */
+#define AMI_FWC_SIZE	512
+#define AMI_FWC_STRMAX	96
+
+struct ami_fwc_entry {
+	uint32_t hash;
+	int width;
+	int size;
+	int weight;
+	plot_font_generic_family_t family;
+	plot_font_flags_t flags;
+	uint16_t length;
+	char data[AMI_FWC_STRMAX];
+};
+
+static struct ami_fwc_entry ami_fwc[AMI_FWC_SIZE];
+
+static uint32_t
+ami_fwc_hash(const plot_font_style_t *fstyle, const char *string, size_t length)
+{
+	uint32_t h = 2166136261u;
+	size_t i;
+
+	h ^= (uint32_t)fstyle->family;
+	h *= 16777619u;
+	h ^= (uint32_t)fstyle->size;
+	h *= 16777619u;
+	h ^= (uint32_t)fstyle->weight;
+	h *= 16777619u;
+	h ^= (uint32_t)fstyle->flags;
+	h *= 16777619u;
+	for (i = 0; i < length; i++) {
+		h ^= (uint8_t)string[i];
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static void
+ami_font_width_cache_clear(void)
+{
+	memset(ami_fwc, 0, sizeof(ami_fwc));
+}
+
 void ami_font_fini(void)
 {
+	ami_font_width_cache_clear();
+
 	switch (ami_font_active_engine) {
 	case AMI_FONTENG_TTENGINE:
 		ami_font_ttengine_fini();
@@ -288,7 +340,44 @@ static nserror ami_font_width(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 		int *width)
 {
-	if(__builtin_expect(ami_nsfont == NULL, 0)) return false;
+	uint32_t hash;
+	unsigned idx;
+	struct ami_fwc_entry *e;
+	nserror err;
+
+	if (__builtin_expect(ami_nsfont == NULL, 0)) {
+		return NSERROR_INVALID;
+	}
+
+	if (length > 0 && length <= AMI_FWC_STRMAX && string != NULL) {
+		hash = ami_fwc_hash(fstyle, string, length);
+		idx = hash & (AMI_FWC_SIZE - 1);
+		e = &ami_fwc[idx];
+		if (e->hash == hash &&
+		    e->length == length &&
+		    e->size == fstyle->size &&
+		    e->weight == fstyle->weight &&
+		    e->family == fstyle->family &&
+		    e->flags == fstyle->flags &&
+		    memcmp(e->data, string, length) == 0) {
+			*width = e->width;
+			return NSERROR_OK;
+		}
+
+		err = ami_nsfont->width(fstyle, string, length, width);
+		if (err == NSERROR_OK) {
+			e->hash = hash;
+			e->width = *width;
+			e->size = fstyle->size;
+			e->weight = fstyle->weight;
+			e->family = fstyle->family;
+			e->flags = fstyle->flags;
+			e->length = (uint16_t)length;
+			memcpy(e->data, string, length);
+		}
+		return err;
+	}
+
 	return ami_nsfont->width(fstyle, string, length, width);
 }
 
