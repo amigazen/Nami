@@ -1,28 +1,23 @@
 #
-# VMakefile — vbcc AmigaOS3 NetSurf
+# VMakefile — vbcc AmigaOS3 NetSurf / Nami / Tsunami
 #
-# Builds objects and links them. Amiga vc does not support @response files
-# (reports "No match for @…"), so flags are on the command line.
-#
-# Sibling netsurf libs (css.lib, etc.) are copied into build/vbcc-os3/lib
-# before linking so -L points at a local ready-to-link set.
-#
-# JavaScript uses LIBS:quickjs.library (nea-quickjs LVO client). The
-# library is opened on first script context, not at startup. Contexts
-# are created lean (NewContextRaw + base/eval/json) so the normal
-# 192KB $STACK cookie in gui.c is enough on the new-window path.
-#
-#   make -f VMakefile
+# Targets:
+#   make -f VMakefile          -> NetSurf (static hubbub.lib + dom.lib)
+#   make -f VMakefile Nami     -> Nami (hubbub.library + dom.library via PROGDIR:libs/)
+#   make -f VMakefile Tsunami  -> Tsunami MUI frontend (static hubbub.lib + dom.lib, like NetSurf)
 #   make -f VMakefile clean
 #
+# Nami runtime layout (beside the binary):
+#   Nami
+#   libs/hubbub.library
+#   libs/dom.library
+#
 
-# Must be the first target (before include), otherwise make defaults to the
-# first rule in vobjects.mak and only builds content_content.o.
 all: NetSurf
 
 LIBDIR = build/vbcc-os3/lib
+NAMILIBDIR = libs
 
-# JavaScript: Amiga quickjs.library LVO client (nea-quickjs), not Duktape.
 NETSURF_QUICKJS_AMIGA_ROOT = /nea-quickjs
 QJSROOT = $(NETSURF_QUICKJS_AMIGA_ROOT)
 QJSVBCC = $(QJSROOT)/library/vbcc
@@ -41,12 +36,14 @@ VCFLAGS = +aos68k_posix -c99 -Dnsamiga -D__AMIGA__ -D_AMIGA -DPATH_MAX=1024 -cpu
 	-I../libparserutils/include \
 	-I../libhubbub/include \
 	-I../libdom/include \
+	-I../libdom/bindings \
 	-I../libcss/include \
 	-I../z.library/Source/lib_source/zlib \
 	-I../z.library/SDK/Include_H \
 	-I../libcodesets/developer/include \
 	-I../AmiHTTP/SDK/Include_H \
 	-I../ttengine.library/SDK/Include_H \
+	-I../gtdrag.library/SDK/Include_h \
 	-I../guigfxlib/include \
 	-I../renderlib/include \
 	-I../libopenurl/developer/C/include \
@@ -55,36 +52,77 @@ VCFLAGS = +aos68k_posix -c99 -Dnsamiga -D__AMIGA__ -D_AMIGA -DPATH_MAX=1024 -cpu
 	-Ivbcc:ns-vbcc/include \
 	-INDK:Include/include_h
 
-# Only for quickjs_amiga/js.c and the LVO bridge. Do not put these on
-# global VCFLAGS — nea-quickjs/include/dirent.h conflicts with PosixLib
-# NAME_MAX when compiling frontends/amiga/gui.c and friends.
+# Tsunami MUI frontend flags (DnsTsunami + MUI includes; still AmigaOS3)
+VCFLAGS_TSUNAMI = +aos68k_posix -c99 -Dnsamiga -DnsTsunami -D__AMIGA__ -D_AMIGA -DPATH_MAX=1024 -cpu=68020 -DNDEBUG \
+	-DWITH_HUBBUB -DWITH_AMIGA_ICON -DWITH_AMIGA_DATATYPES -DWITH_AMIHTTP \
+	-DNETSURF_LOG_LEVEL=INFO \
+	-Ifrontends/mui \
+	-Ifrontends/amiga/include \
+	-Ifrontends/amiga/regex \
+	-I. -Iinclude -Ifrontends -Ifrontends/amiga -Ifrontends/amiga/iconv \
+	-Icontent/handlers \
+	-Ivbcc-include \
+	-I../libnsutils/include \
+	-I../libwapcaplet/include \
+	-I../libparserutils/include \
+	-I../libhubbub/include \
+	-I../libdom/include \
+	-I../libdom/bindings \
+	-I../libcss/include \
+	-I../z.library/Source/lib_source/zlib \
+	-I../z.library/SDK/Include_H \
+	-I../libcodesets/developer/include \
+	-I../AmiHTTP/SDK/Include_H \
+	-I../ttengine.library/SDK/Include_H \
+	-I../gtdrag.library/SDK/Include_h \
+	-I../guigfxlib/include \
+	-I../renderlib/include \
+	-I../libopenurl/developer/C/include \
+	-I../CGraphX/C/Include \
+	-I../../mui38dev/MUI/Developer/C/Include \
+	-I../iconv.library/SDK/Include_h \
+	-ISDK:Include_h \
+	-Ivbcc:ns-vbcc/include \
+	-INDK:Include/include_h
+
 QJSCFLAGS = -DQJS_USE_LIBRARY -DJS_NAN_BOXING=0 \
 	-I$(QJSROOT)/quickjs-master \
 	-I$(QJSROOT)/include \
 	-I$(QJSVBCC)
 
-# Local staged .lib in $(LIBDIR). Do not use -lauto (PosixLib SocketBase clash).
-# +aos68k_posix already adds -lposix -lvc -lamiga and math.
-# zlib: SAS/C zlib.lib/zlibstubs.lib use @-symbols — not linkable with vbcc.
-# Compile z.library stubs + gz helpers as objects instead (needs LIBS:z.library).
 VLDFLAGS = -L$(LIBDIR) \
 	-lcss -ldom -lhubbub -lparserutils -lwapcaplet -lnsutils
 
-include frontends/amiga/vobjects.mak
+# Nami: LVO stubs for hubbub + dom (no -lhubbub / -ldom).
+NAMI_LDFLAGS = -L$(LIBDIR) \
+	-lcss -lparserutils -lwapcaplet -lnsutils
 
-# vbcc-built z.library glue (inflate* via LVOs) + gz* for Messages files
-# Sources live under frontends/amiga/ — Amiga make does not resolve ../ sibling paths.
+include frontends/amiga/vobjects.mak
+include frontends/mui/vobjects.mak
+
+# Core + MUI frontend (drop Reaction amiga frontend objects from OBJS).
+# Also drop Amiga's iconv.o — Tsunami uses mui/iconv.c (iconv.library or
+# renamed built-in fallback) so Amiga FE sources stay untouched.
+TSUNAMI_OBJS = $(filter-out $(AMIGA_FE_OBJS) build/vbcc-os3/frontends_amiga_iconv_iconv.o,$(OBJS)) $(TSUNAMI_FE_OBJS)
+
 ZOBJS = \
 	build/vbcc-os3/frontends_amiga_z_stubs.o \
 	build/vbcc-os3/frontends_amiga_z_autoinit.o \
 	build/vbcc-os3/frontends_amiga_zlib_gzio.o
 
-# Static Henry Spencer POSIX regex (no regex.library)
 ROBJS = \
 	build/vbcc-os3/frontends_amiga_regex_regcomp.o \
 	build/vbcc-os3/frontends_amiga_regex_regexec.o \
 	build/vbcc-os3/frontends_amiga_regex_regerror.o \
 	build/vbcc-os3/frontends_amiga_regex_regfree.o
+
+HOBJS = \
+	build/vbcc-os3/frontends_amiga_hubbub_stubs.o \
+	build/vbcc-os3/frontends_amiga_hubbub_nami_autoinit.o
+
+DOBJS = \
+	build/vbcc-os3/frontends_amiga_dom_stubs.o \
+	build/vbcc-os3/frontends_amiga_dom_nami_autoinit.o
 
 build/vbcc-os3/stamp:
 	-MakeDir build
@@ -95,7 +133,6 @@ $(LIBDIR)/stamp: build/vbcc-os3/stamp
 	-MakeDir $(LIBDIR)
 	Echo ok >$(LIBDIR)/stamp
 
-# Stage sibling vbcc libraries into build/vbcc-os3/lib for the link step
 stage-libs: $(LIBDIR)/stamp
 	Copy /libcss/css.lib $(LIBDIR)/css.lib
 	Copy /libdom/dom.lib $(LIBDIR)/dom.lib
@@ -104,9 +141,23 @@ stage-libs: $(LIBDIR)/stamp
 	Copy /libwapcaplet/wapcaplet.lib $(LIBDIR)/wapcaplet.lib
 	Copy /libnsutils/nsutils.lib $(LIBDIR)/nsutils.lib
 
+# Nami: no static hubbub.lib / dom.lib
+stage-libs-nami: $(LIBDIR)/stamp
+	Copy /libcss/css.lib $(LIBDIR)/css.lib
+	Copy /libparserutils/parserutils.lib $(LIBDIR)/parserutils.lib
+	Copy /libwapcaplet/wapcaplet.lib $(LIBDIR)/wapcaplet.lib
+	Copy /libnsutils/nsutils.lib $(LIBDIR)/nsutils.lib
+
+stage-nami-libs:
+	-MakeDir $(NAMILIBDIR)
+	Copy /libhubbub/hubbub.library $(NAMILIBDIR)/hubbub.library
+	Copy /libdom/dom.library $(NAMILIBDIR)/dom.library
+
 $(OBJS): build/vbcc-os3/stamp
 $(ZOBJS): build/vbcc-os3/stamp
 $(ROBJS): build/vbcc-os3/stamp
+$(HOBJS): build/vbcc-os3/stamp
+$(DOBJS): build/vbcc-os3/stamp
 
 build/vbcc-os3/frontends_amiga_z_stubs.o: frontends/amiga/z_stubs.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_z_stubs.o frontends/amiga/z_stubs.c
@@ -129,9 +180,33 @@ build/vbcc-os3/frontends_amiga_regex_regerror.o: frontends/amiga/regex/regerror.
 build/vbcc-os3/frontends_amiga_regex_regfree.o: frontends/amiga/regex/regfree.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_regex_regfree.o frontends/amiga/regex/regfree.c
 
+build/vbcc-os3/frontends_amiga_hubbub_stubs.o: frontends/amiga/hubbub_stubs.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_hubbub_stubs.o frontends/amiga/hubbub_stubs.c
+
+build/vbcc-os3/frontends_amiga_hubbub_nami_autoinit.o: frontends/amiga/hubbub_nami_autoinit.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_hubbub_nami_autoinit.o frontends/amiga/hubbub_nami_autoinit.c
+
+# Dom LVO stubs live in libdom (single source of truth with dom.library).
+# -Ifrontends/amiga first so Nami's dom_stub_open.h wins over libdom's.
+build/vbcc-os3/frontends_amiga_dom_stubs.o: /libdom/amiga/stubs/dom_stubs.c frontends/amiga/dom_stub_open.h
+	vc $(VCFLAGS) -Ifrontends/amiga -I/libdom/amiga/stubs -c -o build/vbcc-os3/frontends_amiga_dom_stubs.o /libdom/amiga/stubs/dom_stubs.c
+
+build/vbcc-os3/frontends_amiga_dom_nami_autoinit.o: frontends/amiga/dom_nami_autoinit.c frontends/amiga/dom_stub_open.h frontends/amiga/hubbub_stub_open.h
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_dom_nami_autoinit.o frontends/amiga/dom_nami_autoinit.c
+
 NetSurf: $(OBJS) $(ZOBJS) $(ROBJS) stage-libs
 	vc +aos68k_posix -o NetSurf $(OBJS) $(ZOBJS) $(ROBJS) $(VLDFLAGS)
+
+Nami: $(OBJS) $(ZOBJS) $(ROBJS) $(HOBJS) $(DOBJS) stage-libs-nami stage-nami-libs
+	vc +aos68k_posix -o Nami $(OBJS) $(ZOBJS) $(ROBJS) $(HOBJS) $(DOBJS) $(NAMI_LDFLAGS)
+
+Tsunami: $(TSUNAMI_OBJS) $(ZOBJS) $(ROBJS) stage-libs
+	vc +aos68k_posix -o Tsunami $(TSUNAMI_OBJS) $(ZOBJS) $(ROBJS) $(VLDFLAGS)
 
 clean:
 	-Delete quiet force all build/vbcc-os3
 	-Delete quiet NetSurf
+	-Delete quiet Nami
+	-Delete quiet Tsunami
+	-Delete quiet $(NAMILIBDIR)/hubbub.library
+	-Delete quiet $(NAMILIBDIR)/dom.library

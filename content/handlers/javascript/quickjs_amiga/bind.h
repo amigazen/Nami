@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * Minimal Window / Document / Element / Console bindings for QuickJS.
  */

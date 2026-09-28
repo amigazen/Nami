@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Kitsune
+ * Copyright 2026 amigazen project
  *
  * This file is part of NetSurf, http://www.netsurf-browser.org/
  *

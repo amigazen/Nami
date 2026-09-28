@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * Window, Location, Navigator and Console. Timers go through the
  * frontend scheduler (guit->misc->schedule), same idea as duktape's

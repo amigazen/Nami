@@ -7,6 +7,7 @@ S_FETCHER_ABOUT := \
 	chart.c \
 	choices.c \
 	config.c \
+	home.c \
 	imagecache.c \
 	nscolours.c \
 	query.c \

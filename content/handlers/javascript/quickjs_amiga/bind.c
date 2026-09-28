@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * Hand-written QuickJS bindings: window, document, Element, console.
  * Enough for a click → textContent welcome-page demo.

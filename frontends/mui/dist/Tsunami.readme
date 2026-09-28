@@ -1,0 +1,16 @@
+Tsunami
+=======
+
+MUI-based Amiga frontend for NetSurf (AmigaOS 3 / vbcc).
+
+Build:
+
+  make -f VMakefile Tsunami
+
+Links like NetSurf: static hubbub.lib and dom.lib (not hubbub.library /
+dom.library).
+
+Requires muimaster.library (MUI 3.8 or MUI 5.0). Textinput.mcc is
+optional for the URL bar (falls back to MUIC_String).
+
+Source directory: frontends/mui

@@ -1,0 +1,20 @@
+# ----------------------------------------------------------------------------
+# Tsunami (MUI) specific options
+# ----------------------------------------------------------------------------
+
+NETSURF_USE_LIBICONV_PLUG := NO
+
+# Prefer amihttp.library over libcurl for HTTP(S) on Amiga.
+NETSURF_USE_AMIHTTP := YES
+NETSURF_USE_CURL := NO
+
+NETSURF_USE_OPENSSL := NO
+NETSURF_USE_AMISSL := NO
+
+NETSURF_USE_ROSPRITE := NO
+NETSURF_USE_AMIGA_ICON := YES
+NETSURF_USE_AMIGA_DATATYPES := YES
+NETSURF_USE_NSSVG := YES
+NETSURF_FS_BACKING_STORE := YES
+
+CFLAGS += -O2 -fomit-frame-pointer

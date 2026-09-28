@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * Sync libdom text mutations into the HTML box tree and request reflow.
  */

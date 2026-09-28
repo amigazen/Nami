@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * Node, Element and Document methods. Ported from the duktape .bnd
  * files that have real C bodies.

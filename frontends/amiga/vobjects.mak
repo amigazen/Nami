@@ -63,6 +63,7 @@ OBJS = \
 	build/vbcc-os3/content_fetchers_about_chart.o \
 	build/vbcc-os3/content_fetchers_about_choices.o \
 	build/vbcc-os3/content_fetchers_about_config.o \
+	build/vbcc-os3/content_fetchers_about_home.o \
 	build/vbcc-os3/content_fetchers_about_imagecache.o \
 	build/vbcc-os3/content_fetchers_about_nscolours.o \
 	build/vbcc-os3/content_fetchers_about_query.o \
@@ -170,6 +171,7 @@ OBJS = \
 	build/vbcc-os3/frontends_amiga_print.o \
 	build/vbcc-os3/frontends_amiga_theme.o \
 	build/vbcc-os3/frontends_amiga_drag.o \
+	build/vbcc-os3/frontends_amiga_ami_gtdrag.o \
 	build/vbcc-os3/frontends_amiga_icon.o \
 	build/vbcc-os3/frontends_amiga_ico.o \
 	build/vbcc-os3/frontends_amiga_libs.o \
@@ -183,6 +185,64 @@ OBJS = \
 	build/vbcc-os3/frontends_amiga_rtg.o \
 	build/vbcc-os3/frontends_amiga_agclass_amigaguide_class.o \
 	build/vbcc-os3/frontends_amiga_os3support.o \
+	build/vbcc-os3/frontends_amiga_font_diskfont.o \
+	build/vbcc-os3/frontends_amiga_font_ttengine.o \
+	build/vbcc-os3/frontends_amiga_selectmenu.o \
+	build/vbcc-os3/frontends_amiga_hash_xxhash.o \
+	build/vbcc-os3/frontends_amiga_font_cache.o \
+	build/vbcc-os3/frontends_amiga_font_bullet.o \
+	build/vbcc-os3/frontends_amiga_nsoption.o \
+	build/vbcc-os3/frontends_amiga_corewindow.o \
+	build/vbcc-os3/frontends_amiga_gui_menu.o \
+	build/vbcc-os3/frontends_amiga_pageinfo.o
+
+# Amiga Reaction frontend objects only (excluded when linking Tsunami).
+# Keep shared OS3 glue in OBJS for Tsunami: iconv, os3support (ceilf/uname).
+AMIGA_FE_OBJS = \
+	build/vbcc-os3/frontends_amiga_gui.o \
+	build/vbcc-os3/frontends_amiga_history.o \
+	build/vbcc-os3/frontends_amiga_hotlist.o \
+	build/vbcc-os3/frontends_amiga_schedule.o \
+	build/vbcc-os3/frontends_amiga_file.o \
+	build/vbcc-os3/frontends_amiga_misc.o \
+	build/vbcc-os3/frontends_amiga_bitmap.o \
+	build/vbcc-os3/frontends_amiga_font.o \
+	build/vbcc-os3/frontends_amiga_filetype.o \
+	build/vbcc-os3/frontends_amiga_utf8.o \
+	build/vbcc-os3/frontends_amiga_memory.o \
+	build/vbcc-os3/frontends_amiga_plotters.o \
+	build/vbcc-os3/frontends_amiga_object.o \
+	build/vbcc-os3/frontends_amiga_menu.o \
+	build/vbcc-os3/frontends_amiga_save_pdf.o \
+	build/vbcc-os3/frontends_amiga_arexx.o \
+	build/vbcc-os3/frontends_amiga_version.o \
+	build/vbcc-os3/frontends_amiga_cookies.o \
+	build/vbcc-os3/frontends_amiga_ctxmenu.o \
+	build/vbcc-os3/frontends_amiga_clipboard.o \
+	build/vbcc-os3/frontends_amiga_help.o \
+	build/vbcc-os3/frontends_amiga_font_scan.o \
+	build/vbcc-os3/frontends_amiga_launch.o \
+	build/vbcc-os3/frontends_amiga_search.o \
+	build/vbcc-os3/frontends_amiga_history_local.o \
+	build/vbcc-os3/frontends_amiga_download.o \
+	build/vbcc-os3/frontends_amiga_iff_dr2d.o \
+	build/vbcc-os3/frontends_amiga_gui_options.o \
+	build/vbcc-os3/frontends_amiga_print.o \
+	build/vbcc-os3/frontends_amiga_theme.o \
+	build/vbcc-os3/frontends_amiga_drag.o \
+	build/vbcc-os3/frontends_amiga_ami_gtdrag.o \
+	build/vbcc-os3/frontends_amiga_icon.o \
+	build/vbcc-os3/frontends_amiga_ico.o \
+	build/vbcc-os3/frontends_amiga_libs.o \
+	build/vbcc-os3/frontends_amiga_datatypes.o \
+	build/vbcc-os3/frontends_amiga_dt_picture.o \
+	build/vbcc-os3/frontends_amiga_dt_anim.o \
+	build/vbcc-os3/frontends_amiga_dt_sound.o \
+	build/vbcc-os3/frontends_amiga_plugin_hack.o \
+	build/vbcc-os3/frontends_amiga_stringview_stringview.o \
+	build/vbcc-os3/frontends_amiga_stringview_urlhistory.o \
+	build/vbcc-os3/frontends_amiga_rtg.o \
+	build/vbcc-os3/frontends_amiga_agclass_amigaguide_class.o \
 	build/vbcc-os3/frontends_amiga_font_diskfont.o \
 	build/vbcc-os3/frontends_amiga_font_ttengine.o \
 	build/vbcc-os3/frontends_amiga_selectmenu.o \
@@ -387,6 +447,9 @@ build/vbcc-os3/content_fetchers_about_choices.o: content/fetchers/about/choices.
 
 build/vbcc-os3/content_fetchers_about_config.o: content/fetchers/about/config.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_fetchers_about_config.o content/fetchers/about/config.c
+
+build/vbcc-os3/content_fetchers_about_home.o: content/fetchers/about/home.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/content_fetchers_about_home.o content/fetchers/about/home.c
 
 build/vbcc-os3/content_fetchers_about_imagecache.o: content/fetchers/about/imagecache.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/content_fetchers_about_imagecache.o content/fetchers/about/imagecache.c
@@ -708,6 +771,9 @@ build/vbcc-os3/frontends_amiga_theme.o: frontends/amiga/theme.c
 
 build/vbcc-os3/frontends_amiga_drag.o: frontends/amiga/drag.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_drag.o frontends/amiga/drag.c
+
+build/vbcc-os3/frontends_amiga_ami_gtdrag.o: frontends/amiga/ami_gtdrag.c
+	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_ami_gtdrag.o frontends/amiga/ami_gtdrag.c
 
 build/vbcc-os3/frontends_amiga_icon.o: frontends/amiga/icon.c
 	vc $(VCFLAGS) -c -o build/vbcc-os3/frontends_amiga_icon.o frontends/amiga/icon.c

@@ -53,6 +53,7 @@
 #include "config.h"
 #include "chart.h"
 #include "choices.h"
+#include "home.h"
 #include "imagecache.h"
 #include "nscolours.h"
 #include "query.h"
@@ -365,6 +366,14 @@ struct about_handlers about_handler_list[] = {
 		SLEN("welcome"),
 		NULL,
 		fetch_about_welcome_handler,
+		false
+	},
+	{
+		/* Built-in home: search, history, hotlist (not a resource file) */
+		"home",
+		SLEN("home"),
+		NULL,
+		fetch_about_home_handler,
 		false
 	},
 	{

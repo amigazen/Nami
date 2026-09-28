@@ -1,0 +1,15 @@
+# -*- mode: makefile-gmake -*-
+##
+## Tsunami (MUI) target tool setup — AmigaOS 3 / m68k
+##
+
+ifeq ($(findstring amiga,$(HOST)),amiga)
+  PKG_CONFIG := pkg-config
+else
+  GCCSDK_INSTALL_ENV ?= /opt/netsurf/m68k-unknown-amigaos/env
+  GCCSDK_INSTALL_CROSSBIN ?= /opt/netsurf/m68k-unknown-amigaos/cross/bin
+
+  CC := $(wildcard $(GCCSDK_INSTALL_CROSSBIN)/*gcc)
+
+  PKG_CONFIG := PKG_CONFIG_LIBDIR="$(GCCSDK_INSTALL_ENV)/lib/pkgconfig" pkg-config
+endif

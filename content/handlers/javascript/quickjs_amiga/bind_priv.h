@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * Shared helpers for the QuickJS DOM bindings.
  * The implemented surface matches NetSurf's duktape/*.bnd methods that

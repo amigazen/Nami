@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * Event, NodeList, NamedNodeMap and DOMTokenList classes.
  * Indexed access (list[0]) is an exotic own-property so prototype

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AmigaZen / Nami contributors
+ * Copyright 2026 amigazen project
  *
  * After a JS textContent write, push the new string into the box tree
  * and ask the HTML content to reflow and redraw. NetSurf's Duktape path
