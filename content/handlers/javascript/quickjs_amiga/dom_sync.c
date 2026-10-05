@@ -1,15 +1,16 @@
 /*
  * Copyright 2026 amigazen project
  *
- * After a JS textContent write, push the new string into the box tree
- * and ask the HTML content to reflow and redraw. NetSurf's Duktape path
- * mutates libdom only; without this hook the page never changes on screen.
+ * After a JS DOM write, push changes into the box tree and ask the HTML
+ * content to reflow and redraw. NetSurf's Duktape path mutates libdom
+ * only; without this hook the page never changes on screen.
  */
 
 #include <stddef.h>
 #include <string.h>
 
 #include <dom/dom.h>
+#include <libcss/libcss.h>
 
 #include "utils/log.h"
 #include "utils/talloc.h"
@@ -104,4 +105,27 @@ void qjs_dom_sync_text(struct html_content *html, struct dom_node *node)
 			(unsigned long)len);
 	content__reformat(c, false, c->available_width, c->available_height);
 	html__redraw_a_box(html, text_box);
+}
+
+void qjs_dom_sync_style(struct html_content *html, struct dom_node *node)
+{
+	struct content *c;
+
+	if (html == NULL || node == NULL) {
+		return;
+	}
+
+	html_restyle_element(html, node);
+
+	if (html->base.status != CONTENT_STATUS_READY &&
+			html->base.status != CONTENT_STATUS_DONE) {
+		return;
+	}
+
+	c = &html->base;
+	NSLOG(netsurf, INFO, "qjs_dom_sync: style restyled node %p, reformat",
+			(void *)node);
+	content__reformat(c, false, c->available_width, c->available_height);
+	html__redraw_a_box(html, html->layout != NULL ? html->layout :
+			box_for_node(node));
 }

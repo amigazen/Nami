@@ -1,7 +1,7 @@
 /*
  * Copyright 2026 amigazen project
  *
- * Sync libdom text mutations into the HTML box tree and request reflow.
+ * Sync libdom mutations into the HTML box tree and request reflow.
  */
 
 #ifndef NETSURF_JS_QUICKJS_AMIGA_DOM_SYNC_H_
@@ -15,5 +15,11 @@ struct dom_node;
  * BOX_TEXT (if any), reformat the document, and redraw the affected box.
  */
 void qjs_dom_sync_text(struct html_content *html, struct dom_node *node);
+
+/**
+ * After classList / class mutations, reselect styles for the element
+ * and reflow so rules like #apmenu.open { display:block } take effect.
+ */
+void qjs_dom_sync_style(struct html_content *html, struct dom_node *node);
 
 #endif /* NETSURF_JS_QUICKJS_AMIGA_DOM_SYNC_H_ */

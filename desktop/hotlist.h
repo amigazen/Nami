@@ -92,6 +92,16 @@ nserror hotlist_fini(void);
 nserror hotlist_add_url(struct nsurl *url);
 
 /**
+ * Add an entry under a named top-level folder (created if missing).
+ * Used for toolbar / sidebar favicon strips that scan a specific folder.
+ *
+ * \param url		URL for node being added
+ * \param folder_title	Folder title to insert into (e.g. HotlistToolbar)
+ * \return NSERROR_OK on success, appropriate error otherwise
+ */
+nserror hotlist_add_url_to_folder(struct nsurl *url, const char *folder_title);
+
+/**
  * Check whether given URL is present in hotlist
  *
  * \param url		Address to look for in hotlist

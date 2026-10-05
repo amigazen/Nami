@@ -3,7 +3,7 @@
 #define NETSURF_VBCC_DEFS_H
 
 #ifndef NETSURF_HOMEPAGE
-#define NETSURF_HOMEPAGE "about:welcome"
+#define NETSURF_HOMEPAGE "about:home"
 #endif
 
 /*

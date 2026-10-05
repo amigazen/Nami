@@ -116,8 +116,24 @@
 #ifndef GA_ContextMenu
 #define GA_ContextMenu			TAG_IGNORE
 #endif
+/* OS3.2: per-gadget help text (window needs WINDOW_GadgetHelp + WINDOW_HintInfo).
+ * OS4: GA_HintInfo is the public tag.  Do not #define GA_GadgetHelpText —
+ * NDK gadgetclass.h already has it; a second define (even same value with
+ * different spacing) makes vbcc fail with "redefined unidentically". */
+#ifndef __amigaos4__
+#ifdef GA_GadgetHelpText
+#define AMI_GA_HELP			GA_GadgetHelpText
+#else
+#define AMI_GA_HELP			(GA_Dummy+45)
+#endif
+#ifndef GA_HintInfo
+#define GA_HintInfo			AMI_GA_HELP
+#endif
+#else
 #ifndef GA_HintInfo
 #define GA_HintInfo			TAG_IGNORE
+#endif
+#define AMI_GA_HELP			GA_HintInfo
 #endif
 #ifndef GAUGEIA_Level
 #define GAUGEIA_Level			TAG_IGNORE

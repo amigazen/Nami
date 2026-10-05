@@ -202,12 +202,24 @@ parse_button_element(struct form *forms, dom_html_button_element *button)
 	if (err != DOM_NO_ERR)
 		goto out;
 
+	/* HTML default type is submit, but a submit control with no form
+	 * cannot submit — treat it as a plain button (menu toggles etc.). */
 	if (ds_type == NULL) {
-		control = form_new_control(button, GADGET_SUBMIT);
+		if (form != NULL) {
+			control = form_new_control(button, GADGET_SUBMIT);
+		} else {
+			control = form_new_control(button, GADGET_BUTTON);
+		}
 	} else {
 		if (dom_string_caseless_lwc_isequal(ds_type,
 				corestring_lwc_submit)) {
-			control = form_new_control(button, GADGET_SUBMIT);
+			if (form != NULL) {
+				control = form_new_control(button,
+						GADGET_SUBMIT);
+			} else {
+				control = form_new_control(button,
+						GADGET_BUTTON);
+			}
 		} else if (dom_string_caseless_lwc_isequal(ds_type,
 				corestring_lwc_reset)) {
 			control = form_new_control(button, GADGET_RESET);

@@ -61,8 +61,8 @@ struct html_stylesheet {
 	bool modified;
 	bool unused;
 	/**
-	 * Remote author stylesheet may complete after first paint.
-	 * When set, fetch does not block html_can_begin_conversion.
+	 * Stylesheet may complete after first paint (historical defer
+	 * path). Same-host sheets block conversion like local sheets.
 	 */
 	bool defer_ok;
 };

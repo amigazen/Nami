@@ -1,3 +1,5 @@
 ; Run from the netsurf directory:
-;   make -f VMakefile
+;   make -f VMakefile          -> NetSurf
+;   make -f VMakefile Nami     -> Nami
+;   make -f VMakefile Tsunami  -> Tsunami (MUI)
 make -f VMakefile

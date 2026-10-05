@@ -473,22 +473,26 @@ bool html_css_process_link(html_content *htmlc, dom_node *node)
 	      htmlc->stylesheet_count, nsurl_access(joined));
 
 	/*
-	 * Remote http(s) author CSS is skipped on purpose: Vector-sized
-	 * sheets (Wikipedia ~200KB) make DOM→box too slow on classic Amiga,
-	 * and folding them in after first paint caused lockups.  Layout uses
-	 * default.css plus inline/style sheets only.
+	 * Third-party http(s) author CSS is skipped: CDN / tracker /
+	 * Wikipedia-scale sheets made DOM→box too slow on classic Amiga.
+	 * Same-host sheets (page chrome on the document's own domain)
+	 * are fetched with resource:/file: sheets.
 	 */
 	scheme = nsurl_get_component(joined, NSURL_SCHEME);
 	if (scheme == corestring_lwc_http ||
 	    scheme == corestring_lwc_https) {
-		NSLOG(netsurf, INFO,
-		      "skip remote author CSS (first paint): '%s'",
-		      nsurl_access(joined));
-		if (scheme != NULL) {
-			lwc_string_unref(scheme);
+		if (htmlc->base_url == NULL ||
+				nsurl_compare(htmlc->base_url, joined,
+						NSURL_HOST) == false) {
+			NSLOG(netsurf, INFO,
+			      "skip third-party author CSS: '%s'",
+			      nsurl_access(joined));
+			if (scheme != NULL) {
+				lwc_string_unref(scheme);
+			}
+			nsurl_unref(joined);
+			return true;
 		}
-		nsurl_unref(joined);
-		return true;
 	}
 	if (scheme != NULL) {
 		lwc_string_unref(scheme);
@@ -510,7 +514,7 @@ bool html_css_process_link(html_content *htmlc, dom_node *node)
 	htmlc->stylesheets[htmlc->stylesheet_count].unused = false;
 	htmlc->stylesheets[htmlc->stylesheet_count].defer_ok = false;
 
-	/* start fetch (resource:/file:/about: only) */
+	/* start fetch (same-host http(s), or resource:/file:/about:) */
 	child.charset = htmlc->encoding;
 	child.quirks = htmlc->base.quirks;
 

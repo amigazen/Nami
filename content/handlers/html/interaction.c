@@ -676,6 +676,8 @@ get_mouse_action_node(html_content *html,
 		      struct mouse_action_state *man)
 {
 	struct box *box;
+	struct box *overlay;
+	struct rect bounds;
 	int box_x = 0;
 	int box_y = 0;
 
@@ -683,6 +685,24 @@ get_mouse_action_node(html_content *html,
 	memset(man, 0, sizeof(struct mouse_action_state));
 	man->node = html->layout->node; /* Default dom node to the <HTML> */
 	man->result.pointer = BROWSER_POINTER_DEFAULT;
+
+	/*
+	 * Open CSS hover menus are painted above page content (no z-index).
+	 * Hit-test them first so moving onto the panel keeps :hover on the
+	 * menu parent and links inside remain clickable.
+	 */
+	overlay = html->hover_overlay;
+	if (overlay != NULL && overlay->type != BOX_NONE &&
+			overlay->width > 0 && overlay->height > 0) {
+		box_bounds(overlay, &bounds);
+		if (x >= bounds.x0 && x < bounds.x1 &&
+				y >= bounds.y0 && y < bounds.y1) {
+			box = overlay;
+			box_x = bounds.x0 - overlay->x;
+			box_y = bounds.y0 - overlay->y;
+			goto walk_boxes;
+		}
+	}
 
 	/* search the box tree for a link, imagemap, form control, or
 	 * box with scrollbars
@@ -693,6 +713,7 @@ get_mouse_action_node(html_content *html,
 	box_x = box->margin[LEFT];
 	box_y = box->margin[TOP];
 
+walk_boxes:
 	do {
 		/* skip hidden boxes */
 		if ((box->style != NULL) &&
@@ -920,7 +941,8 @@ gadget_mouse_action(html_content *html,
 				mas->result.action = ACTION_SUBMIT;
 			}
 		} else {
-			mas->result.status = messages_get("FormBadSubmit");
+			/* Orphan submit control — click still fires DOM events. */
+			mas->result.status = NULL;
 		}
 		break;
 
@@ -976,8 +998,8 @@ gadget_mouse_action(html_content *html,
 		break;
 
 	case GADGET_BUTTON:
-		/* This gadget cannot be activated */
-		mas->result.status = messages_get("FormButton");
+		/* Not a form submit/reset — JS/DOM click handles activation. */
+		mas->result.status = NULL;
 		break;
 	}
 
@@ -1341,6 +1363,18 @@ mouse_action_drag_none(html_content *html,
 	res = get_mouse_action_node(html, x, y, &mas);
 	if (res != NSERROR_OK) {
 		return res;
+	}
+
+	/*
+	 * CSS :hover on pointer moves (no button). Amiga may OR key
+	 * modifiers into the state, so do not require mouse == 0 exactly.
+	 */
+	if ((mouse & (BROWSER_MOUSE_PRESS_1 | BROWSER_MOUSE_PRESS_2 |
+			BROWSER_MOUSE_CLICK_1 | BROWSER_MOUSE_CLICK_2 |
+			BROWSER_MOUSE_DRAG_1 | BROWSER_MOUSE_DRAG_2 |
+			BROWSER_MOUSE_HOLDING_1 | BROWSER_MOUSE_HOLDING_2 |
+			BROWSER_MOUSE_DRAG_ON)) == 0) {
+		html_set_hover(html, mas.node, x, y);
 	}
 
 	if (mouse & BROWSER_MOUSE_CLICK_4) {

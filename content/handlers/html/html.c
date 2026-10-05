@@ -72,6 +72,10 @@
 #include "html/layout.h"
 #include "html/textselection.h"
 
+#include "content/content_protected.h"
+#include "css/select.h"
+#include "css/utils.h"
+
 #define CHUNK 4096
 
 /* Change these to 1 to cause a dump to stderr of the frameset or box
@@ -485,6 +489,10 @@ html_create_html_data(html_content *c, const http_parameter *params)
 	c->css_restyle_pending = false;
 	c->reflow_pending = false;
 	c->select_ctx = NULL;
+	c->hover = NULL;
+	c->hover_busy = false;
+	c->hover_display_changed = false;
+	c->hover_overlay = NULL;
 	c->media.type = CSS_MEDIA_SCREEN;
 	c->universal = NULL;
 	c->num_objects = 0;
@@ -1193,6 +1201,9 @@ static void html_destroy_iframe(struct content_html_iframe *iframe)
 
 static void html_free_layout(html_content *htmlc)
 {
+	/* Box pointers become invalid when the talloc context is freed. */
+	htmlc->hover_overlay = NULL;
+
 	if (htmlc->bctx != NULL) {
 		/* freeing talloc context should let the entire box
 		 * set be destroyed
@@ -1203,8 +1214,8 @@ static void html_free_layout(html_content *htmlc)
 
 /**
  * Deferred author CSS used to rebuild layout after first paint; that
- * freezes classic Amiga on large sheets.  Remote author CSS is no longer
- * fetched — keep this as a no-op safety net.
+ * freezes classic Amiga on large sheets.  Same-host sheets are fetched
+ * with the document; third-party sheets stay skipped — keep this no-op.
  */
 void html_restyle_deferred_css(html_content *htmlc)
 {
@@ -1212,6 +1223,491 @@ void html_restyle_deferred_css(html_content *htmlc)
 		return;
 	}
 	htmlc->css_restyle_pending = false;
+}
+
+static bool html_node_is_ancestor_or_self(dom_node *ancestor, dom_node *desc);
+
+void html_restyle_element(html_content *html, dom_node *node)
+{
+	struct box *box;
+	css_select_results *styles;
+	nscss_select_ctx sctx;
+	const css_computed_style *parent_style;
+	const css_computed_style *root_style;
+	uint8_t display;
+	dom_node_type t;
+	box_type old_type;
+
+	if (html == NULL || node == NULL) {
+		return;
+	}
+	if (html->base.status != CONTENT_STATUS_READY &&
+			html->base.status != CONTENT_STATUS_DONE) {
+		return;
+	}
+	if (html->layout == NULL || html->select_ctx == NULL) {
+		return;
+	}
+	if (dom_node_get_node_type(node, &t) != DOM_NO_ERR ||
+			t != DOM_ELEMENT_NODE) {
+		return;
+	}
+
+	box = box_for_node(node);
+	if (box == NULL) {
+		return;
+	}
+
+	old_type = box->type;
+
+	parent_style = NULL;
+	if (box->parent != NULL) {
+		parent_style = box->parent->style;
+	}
+	root_style = html->layout->style;
+
+	sctx.ctx = html->select_ctx;
+	sctx.quirks = (html->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
+	sctx.base_url = html->base_url;
+	sctx.universal = html->universal;
+	sctx.root_style = root_style;
+	sctx.parent_style = parent_style;
+	sctx.hover = html->hover;
+
+	styles = nscss_get_style(&sctx, node, &html->media,
+			&html->unit_len_ctx, NULL);
+	if (styles == NULL) {
+		return;
+	}
+
+	if (box->styles != NULL) {
+		css_select_results_destroy(box->styles);
+	}
+	box->styles = styles;
+	box->style = styles->styles[CSS_PSEUDO_ELEMENT_NONE];
+
+	display = ns_computed_display(box->style, false);
+	box->type = box_type_from_css_display(display);
+
+	if (old_type != box->type) {
+		html->hover_display_changed = true;
+	}
+}
+
+/**
+ * True if this element looks like a CSS :hover dropdown parent.
+ * Heuristic only (no site-specific class names): a positioned box that
+ * has a direct child which is display:none and/or out-of-flow
+ * (absolute/fixed) — the usual pattern for pure-CSS menus.
+ */
+static bool html_hover_is_menu_parent(dom_node *node)
+{
+	dom_node *child;
+	dom_node *next;
+	dom_node_type t;
+	struct box *box;
+	struct box *cbox;
+	unsigned count;
+	uint8_t pos;
+	uint8_t display;
+
+	if (node == NULL) {
+		return false;
+	}
+
+	box = box_for_node(node);
+	if (box == NULL || box->style == NULL) {
+		return false;
+	}
+
+	pos = css_computed_position(box->style);
+	if (pos != CSS_POSITION_RELATIVE &&
+			pos != CSS_POSITION_ABSOLUTE &&
+			pos != CSS_POSITION_FIXED) {
+		return false;
+	}
+
+	count = 0;
+	child = NULL;
+	if (dom_node_get_first_child(node, &child) != DOM_NO_ERR) {
+		return false;
+	}
+
+	while (child != NULL) {
+		t = DOM_NODE_TYPE_COUNT;
+		if (dom_node_get_node_type(child, &t) == DOM_NO_ERR &&
+				t == DOM_ELEMENT_NODE) {
+			count++;
+			if (count > 16) {
+				dom_node_unref(child);
+				return false;
+			}
+			cbox = box_for_node(child);
+			if (cbox != NULL && cbox->style != NULL) {
+				display = ns_computed_display(
+						cbox->style, false);
+				pos = css_computed_position(cbox->style);
+				if (cbox->type == BOX_NONE ||
+						display == CSS_DISPLAY_NONE ||
+						pos == CSS_POSITION_ABSOLUTE ||
+						pos == CSS_POSITION_FIXED) {
+					dom_node_unref(child);
+					return true;
+				}
+			}
+		}
+		next = NULL;
+		dom_node_get_next_sibling(child, &next);
+		dom_node_unref(child);
+		child = next;
+	}
+
+	return false;
+}
+
+/**
+ * Restyle a menu parent and its element children (open/close dropdown).
+ * Libcss :hover matching is unreliable with cached node data,
+ * so when the pointer is inside the parent we also force hidden/absolute
+ * panels to BOX_BLOCK (and back to BOX_NONE when leaving).
+ */
+static void html_restyle_menu_parent(html_content *html, dom_node *node)
+{
+	dom_node *child;
+	dom_node *next;
+	dom_node_type t;
+	struct box *box;
+	bool open;
+	uint8_t display;
+	uint8_t pos;
+	box_type want;
+
+	if (node == NULL || html == NULL) {
+		return;
+	}
+
+	open = html_node_is_ancestor_or_self(node, html->hover);
+
+	/* :hover matching is cached in libcss node data — drop it first. */
+	nscss_invalidate_node(node);
+	html_restyle_element(html, node);
+
+	child = NULL;
+	if (dom_node_get_first_child(node, &child) != DOM_NO_ERR) {
+		return;
+	}
+	while (child != NULL) {
+		t = DOM_NODE_TYPE_COUNT;
+		if (dom_node_get_node_type(child, &t) == DOM_NO_ERR &&
+				t == DOM_ELEMENT_NODE) {
+			nscss_invalidate_node(child);
+			html_restyle_element(html, child);
+
+			box = box_for_node(child);
+			if (box != NULL && box->style != NULL) {
+				display = ns_computed_display(box->style,
+						false);
+				pos = css_computed_position(box->style);
+
+				/*
+				 * Dropdown panel: hidden and/or absolutely
+				 * positioned under a relative menu parent.
+				 */
+				if (box->type == BOX_NONE ||
+						display == CSS_DISPLAY_NONE ||
+						pos == CSS_POSITION_ABSOLUTE ||
+						pos == CSS_POSITION_FIXED) {
+					if (open) {
+						want = BOX_BLOCK;
+					} else {
+						want = BOX_NONE;
+					}
+					if (box->type != want) {
+						box->type = want;
+						html->hover_display_changed =
+								true;
+					}
+					if (open && want == BOX_BLOCK) {
+						/*
+						 * BOX_NONE stored max_width=0.
+						 * layout_absolute recomputes
+						 * minmax for this box only —
+						 * do not invalidate ancestors
+						 * (full-page reflow steals the
+						 * pointer from the menu).
+						 */
+						box->max_width =
+								UNKNOWN_MAX_WIDTH;
+						html->hover_overlay = box;
+						html->hover_display_changed =
+								true;
+					} else if (!open &&
+							html->hover_overlay ==
+							box) {
+						html->hover_overlay = NULL;
+					}
+					NSLOG(netsurf, INFO,
+						"html_hover: panel %p open=%d "
+						"display=%u type=%d "
+						"%dx%d",
+						(void *)child, (int)open,
+						(unsigned)display,
+						(int)box->type,
+						box->width, box->height);
+				}
+			} else if (box == NULL) {
+				NSLOG(netsurf, INFO,
+					"html_hover: child %p has no box",
+					(void *)child);
+			}
+		}
+		next = NULL;
+		dom_node_get_next_sibling(child, &next);
+		dom_node_unref(child);
+		child = next;
+	}
+
+	NSLOG(netsurf, INFO, "html_hover: restyled menu parent %p open=%d",
+			(void *)node, (int)open);
+}
+
+/**
+ * True if ancestor is on the path from desc to the root (inclusive).
+ */
+static bool html_node_is_ancestor_or_self(dom_node *ancestor, dom_node *desc)
+{
+	dom_node *cur;
+	dom_node *parent;
+
+	if (ancestor == NULL || desc == NULL) {
+		return false;
+	}
+	if (ancestor == desc) {
+		return true;
+	}
+
+	cur = dom_node_ref(desc);
+	while (cur != NULL) {
+		parent = NULL;
+		if (dom_node_get_parent_node(cur, &parent) != DOM_NO_ERR) {
+			dom_node_unref(cur);
+			return false;
+		}
+		dom_node_unref(cur);
+		if (parent == NULL) {
+			return false;
+		}
+		if (parent == ancestor) {
+			dom_node_unref(parent);
+			return true;
+		}
+		cur = parent;
+	}
+	return false;
+}
+
+/**
+ * Walk a short exclusive hover path; restyle only CSS-dropdown parents.
+ * Depth-capped so ordinary page moves never climb to body/html.
+ */
+static void html_restyle_hover_menus(html_content *html, dom_node *node,
+		dom_node *other)
+{
+	dom_node *cur;
+	dom_node *parent;
+	dom_exception err;
+	unsigned depth;
+
+	if (node == NULL) {
+		return;
+	}
+
+	depth = 0;
+	cur = dom_node_ref(node);
+	while (cur != NULL && depth < 5) {
+		if (other != NULL &&
+				html_node_is_ancestor_or_self(cur, other)) {
+			dom_node_unref(cur);
+			cur = NULL;
+			break;
+		}
+
+		if (html_hover_is_menu_parent(cur)) {
+			html_restyle_menu_parent(html, cur);
+		}
+
+		parent = NULL;
+		err = dom_node_get_parent_node(cur, &parent);
+		dom_node_unref(cur);
+		if (err != DOM_NO_ERR) {
+			cur = NULL;
+			break;
+		}
+		cur = parent;
+		depth++;
+	}
+	if (cur != NULL) {
+		dom_node_unref(cur);
+	}
+}
+
+/**
+ * True if (x,y) lies in the open hover menu panel or its positioned parent.
+ */
+static bool html_point_in_open_menu(html_content *html, int x, int y)
+{
+	struct box *box;
+	struct rect r;
+
+	if (html == NULL || html->hover_overlay == NULL) {
+		return false;
+	}
+
+	box = html->hover_overlay;
+	if (box->type == BOX_NONE || box->width <= 0 || box->height <= 0) {
+		return false;
+	}
+
+	box_bounds(box, &r);
+	if (x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1) {
+		return true;
+	}
+
+	/* Include the trigger (positioned parent) so :hover stays continuous. */
+	box = box->parent;
+	if (box != NULL) {
+		box_bounds(box, &r);
+		if (x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Update the :hover target from the element under the pointer.
+ * Restyles affected chains and reformats when the target changes.
+ * x,y are content coordinates (same space as box_bounds).
+ */
+void html_set_hover(html_content *html, dom_node *node, int x, int y)
+{
+	dom_node *old;
+	dom_node *elem;
+	dom_node *parent;
+	dom_node_type t;
+	struct content *c;
+	dom_node *menu_root;
+
+	if (html == NULL) {
+		return;
+	}
+
+	if (html->hover_busy) {
+		return;
+	}
+
+	elem = NULL;
+	if (node != NULL) {
+		elem = dom_node_ref(node);
+		while (elem != NULL) {
+			if (dom_node_get_node_type(elem, &t) != DOM_NO_ERR) {
+				dom_node_unref(elem);
+				elem = NULL;
+				break;
+			}
+			if (t == DOM_ELEMENT_NODE) {
+				break;
+			}
+			parent = NULL;
+			if (dom_node_get_parent_node(elem, &parent) !=
+					DOM_NO_ERR) {
+				dom_node_unref(elem);
+				elem = NULL;
+				break;
+			}
+			dom_node_unref(elem);
+			elem = parent;
+		}
+	}
+
+	/*
+	 * Keep the menu open while the pointer is over the panel or its
+	 * trigger. Hit-testing otherwise often hits page content under the
+	 * overlay (no z-index), which would clear :hover immediately.
+	 */
+	if (html->hover_overlay != NULL &&
+			html_point_in_open_menu(html, x, y)) {
+		menu_root = NULL;
+		if (html->hover_overlay->parent != NULL &&
+				html->hover_overlay->parent->node != NULL) {
+			menu_root = html->hover_overlay->parent->node;
+		} else if (html->hover_overlay->node != NULL) {
+			menu_root = html->hover_overlay->node;
+		}
+		if (menu_root != NULL &&
+				(elem == NULL ||
+				 !html_node_is_ancestor_or_self(menu_root,
+						elem))) {
+			if (elem != NULL) {
+				dom_node_unref(elem);
+			}
+			if (html->hover_overlay->node != NULL) {
+				elem = dom_node_ref(
+						html->hover_overlay->node);
+			} else {
+				elem = dom_node_ref(menu_root);
+			}
+		}
+	}
+
+	if (html->hover == elem) {
+		if (elem != NULL) {
+			dom_node_unref(elem);
+		}
+		return;
+	}
+
+	/*
+	 * Always update the hover pointer (cheap). Only run style selection
+	 * when a CSS dropdown parent entered or left the path — never on
+	 * ordinary text/link moves across the page.
+	 */
+	html->hover_busy = true;
+	html->hover_display_changed = false;
+
+	old = html->hover;
+	html->hover = elem;
+
+	html_restyle_hover_menus(html, old, html->hover);
+	html_restyle_hover_menus(html, html->hover, old);
+
+	if (old != NULL) {
+		dom_node_unref(old);
+	}
+
+	if (html->hover_display_changed &&
+			(html->base.status == CONTENT_STATUS_READY ||
+			 html->base.status == CONTENT_STATUS_DONE)) {
+		c = &html->base;
+		content__reformat(c, false,
+				c->available_width,
+				c->available_height);
+		if (html->layout != NULL) {
+			html__redraw_a_box(html, html->layout);
+		}
+		/* Overlay may extend below the header — invalidate it too. */
+		if (html->hover_overlay != NULL) {
+			html__redraw_a_box(html, html->hover_overlay);
+			NSLOG(netsurf, INFO,
+				"html_hover: overlay %p after layout %dx%d",
+				(void *)html->hover_overlay,
+				html->hover_overlay->width,
+				html->hover_overlay->height);
+		}
+	}
+
+	html->hover_busy = false;
 }
 
 /**
@@ -1261,6 +1757,14 @@ static void html_destroy(struct content *c)
 		dom_hubbub_parser_destroy(html->parser);
 		html->parser = NULL;
 	}
+
+	/* Drop hover before the document tree so the extra node ref
+	 * cannot outlive teardown in a bad order. */
+	if (html->hover != NULL) {
+		dom_node_unref(html->hover);
+		html->hover = NULL;
+	}
+	html->hover_overlay = NULL;
 
 	if (html->document != NULL) {
 		dom_node_unref(html->document);
@@ -1375,6 +1879,13 @@ static nserror html_close(struct content *c)
 	nserror ret = NSERROR_OK;
 
 	selection_clear(htmlc->sel, false);
+
+	/* Drop hover state without restyle/reformat (window is closing). */
+	if (htmlc->hover != NULL) {
+		dom_node_unref(htmlc->hover);
+		htmlc->hover = NULL;
+	}
+	htmlc->hover_overlay = NULL;
 
 	/* clear the html content reference to the browser window */
 	htmlc->bw = NULL;

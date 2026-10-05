@@ -27,6 +27,7 @@
 
 #include "private.h"
 #include "bind_priv.h"
+#include "dom_sync.h"
 
 static void
 qjs_event_finalizer(JSRuntime *rt, JSValueConst val)
@@ -870,6 +871,31 @@ qjs_tokens_of(JSContext *ctx, JSValueConst this_val)
 	return (dom_tokenlist *)JS_GetOpaque(this_val, thread->heap->token_class);
 }
 
+static void
+qjs_token_sync(JSContext *ctx, JSValueConst this_val)
+{
+	jsthread *thread;
+	JSValue owner;
+	dom_node *node;
+
+	thread = qjs_thread_from_ctx(ctx);
+	if (thread == NULL || thread->doc_priv == NULL) {
+		return;
+	}
+	owner = JS_GetPropertyStr(ctx, this_val, "\xff""nami_owner");
+	if (JS_IsException(owner) || JS_IsUndefined(owner) ||
+			JS_IsNull(owner)) {
+		JS_FreeValue(ctx, owner);
+		return;
+	}
+	node = qjs_node_from_this(ctx, owner);
+	JS_FreeValue(ctx, owner);
+	if (node == NULL) {
+		return;
+	}
+	qjs_dom_sync_style((struct html_content *)thread->doc_priv, node);
+}
+
 static JSValue
 js_token_add(JSContext *ctx, JSValueConst this_val,
 		int argc, JSValueConst *argv)
@@ -897,6 +923,7 @@ js_token_add(JSContext *ctx, JSValueConst this_val,
 		}
 		JS_FreeCString(ctx, s);
 	}
+	qjs_token_sync(ctx, this_val);
 	return JS_UNDEFINED;
 }
 
@@ -927,6 +954,7 @@ js_token_remove(JSContext *ctx, JSValueConst this_val,
 		}
 		JS_FreeCString(ctx, s);
 	}
+	qjs_token_sync(ctx, this_val);
 	return JS_UNDEFINED;
 }
 
@@ -1023,6 +1051,7 @@ js_token_toggle(JSContext *ctx, JSValueConst this_val,
 		present = true;
 	}
 	dom_string_unref(value);
+	qjs_token_sync(ctx, this_val);
 	return JS_NewBool(ctx, present);
 }
 
@@ -1071,6 +1100,7 @@ js_token_value_set(JSContext *ctx, JSValueConst this_val, JSValueConst val)
 		dom_string_unref(value);
 	}
 	JS_FreeCString(ctx, s);
+	qjs_token_sync(ctx, this_val);
 	return JS_UNDEFINED;
 }
 

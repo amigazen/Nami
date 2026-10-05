@@ -72,6 +72,10 @@
 #ifndef NETSURF_HTML_BOX_CONSTRUCT_H
 #define NETSURF_HTML_BOX_CONSTRUCT_H
 
+#include <stdint.h>
+
+#include "html/box.h"
+
 /**
  * Construct a box tree from a dom and html content
  *
@@ -97,6 +101,12 @@ nserror cancel_dom_to_box(void *box_conversion_context);
  * \return The box if there is one
  */
 struct box *box_for_node(struct dom_node *node);
+
+/**
+ * Map a CSS display value to the corresponding box_type.
+ * Used when JS restyles an element (e.g. display:none → block).
+ */
+box_type box_type_from_css_display(uint8_t display);
 
 /**
  * Extract a URL from a relative link, handling junk like whitespace and

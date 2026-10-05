@@ -39,6 +39,8 @@ typedef struct nscss_select_ctx
 	lwc_string *universal;
 	const css_computed_style *root_style;
 	const css_computed_style *parent_style;
+	/** Deepest DOM node under the pointer, or NULL. Used for :hover. */
+	dom_node *hover;
 } nscss_select_ctx;
 
 css_stylesheet *nscss_create_inline_style(const uint8_t *data, size_t len,
@@ -58,5 +60,11 @@ css_error named_ancestor_node(void *pw, void *node,
 		const css_qname *qname, void **ancestor);
 
 css_error node_is_visited(void *pw, void *node, bool *match);
+
+/**
+ * Drop libcss's cached selector data for a node so :hover / class
+ * changes are re-evaluated on the next style selection.
+ */
+void nscss_invalidate_node(dom_node *node);
 
 #endif

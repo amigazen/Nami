@@ -26,6 +26,7 @@
  */
 
 #include <string.h>
+#include <stddef.h>
 #include <dom/dom.h>
 #include <nsutils/time.h>
 
@@ -113,6 +114,15 @@ static const box_type box_map[] = {
 	BOX_BLOCK,           /* CSS_DISPLAY_GRID */
 	BOX_INLINE_BLOCK,    /* CSS_DISPLAY_INLINE_GRID */
 };
+
+/* exported — see box_construct.h */
+box_type box_type_from_css_display(uint8_t display)
+{
+	if ((size_t)display >= (sizeof(box_map) / sizeof(box_map[0]))) {
+		return BOX_BLOCK;
+	}
+	return box_map[display];
+}
 
 
 /**
@@ -248,8 +258,8 @@ box_extract_properties(dom_node *n, struct box_construct_props *props)
  * Note: Incremental image reflows reuse the existing box tree and do not
  * re-select styles. Style cost is paid once during box construction.
  * author_level_css gates style= / <style>; LibCSS already shares identical
- * computed styles between cousin nodes. Skipping author CSS is the main
- * Amiga speed lever for this path.
+ * computed styles between cousin nodes. Skipping third-party author CSS
+ * is the main Amiga speed lever for this path.
  */
 static css_select_results *
 box_get_style(html_content *c,
@@ -292,6 +302,7 @@ box_get_style(html_content *c,
 	ctx.universal = c->universal;
 	ctx.root_style = root_style;
 	ctx.parent_style = parent_style;
+	ctx.hover = c->hover;
 
 	/* Select style for element */
 	styles = nscss_get_style(&ctx, n, &c->media, &c->unit_len_ctx,
@@ -633,9 +644,18 @@ box_construct_element(struct box_construct_ctx *ctx, bool *convert_children)
 				box->styles->styles[CSS_PSEUDO_ELEMENT_BEFORE]);
 	}
 
-	if (box->type == BOX_NONE || (ns_computed_display(box->style,
-			props.node_is_root) == CSS_DISPLAY_NONE &&
-			props.node_is_root == false)) {
+	/*
+	 * display:none maps to BOX_NONE. Historically we discarded styles and
+	 * skipped children so the element had no DOM↔box link. That prevents
+	 * JS classList from revealing menus (e.g. #apmenu.open {display:block}).
+	 * Keep styles, attach the box, and convert children; layout treats
+	 * BOX_NONE as zero-size until restyle changes the type.
+	 *
+	 * Other BOX_NONE uses (table-column etc.) still skip children.
+	 */
+	if (box->type == BOX_NONE &&
+			ns_computed_display(box->style, props.node_is_root) !=
+					CSS_DISPLAY_NONE) {
 		css_select_results_destroy(styles);
 		box->styles = NULL;
 		box->style = NULL;

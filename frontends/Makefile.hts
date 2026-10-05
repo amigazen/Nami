@@ -107,6 +107,17 @@ else
           ifeq ($(TARGET),haiku)
             override TARGET := beos
             SUBTARGET=
+          else
+            # Tsunami product build: sources live in frontends/mui
+            ifeq ($(TARGET),Tsunami)
+              override TARGET := mui
+              SUBTARGET=
+            else
+              ifeq ($(TARGET),tsunami)
+                override TARGET := mui
+                SUBTARGET=
+              endif
+            endif
           endif
         endif
       endif
@@ -115,7 +126,7 @@ else
 endif
 
 # valid values for the TARGET
-VLDTARGET := amiga atari beos framebuffer gtk monkey qt riscos windows
+VLDTARGET := amiga atari beos framebuffer gtk monkey mui qt riscos windows
 
 # Check for valid TARGET
 ifeq ($(filter $(VLDTARGET),$(TARGET)),)

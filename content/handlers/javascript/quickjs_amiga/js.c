@@ -291,6 +291,11 @@ nserror js_closethread(jsthread *thread)
 
 	NSLOG(netsurf, INFO, "js_closethread");
 	thread->closed = 1;
+	/* Cancel setTimeout/setInterval now. Leaving them until
+	 * destroythread races ami_schedule callbacks against FreeMem. */
+	if (qjs_library_ok) {
+		qjs_bind_dom_teardown(thread);
+	}
 	return NSERROR_OK;
 }
 

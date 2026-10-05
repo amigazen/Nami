@@ -1539,9 +1539,37 @@ css_error node_is_visited(void *pw, void *node, bool *match)
  */
 static css_error node_is_hover(void *pw, void *node, bool *match)
 {
-	/** \todo Support hovering */
+	nscss_select_ctx *ctx = (nscss_select_ctx *)pw;
+	dom_node *n = (dom_node *)node;
+	dom_node *cur;
+	dom_node *parent;
+	dom_exception err;
 
 	*match = false;
+
+	if (ctx == NULL || ctx->hover == NULL || n == NULL) {
+		return CSS_OK;
+	}
+
+	/*
+	 * CSS :hover matches the element under the pointer and every
+	 * ancestor (so .parent:hover > .child works while over the child).
+	 */
+	cur = dom_node_ref(ctx->hover);
+	while (cur != NULL) {
+		if (cur == n) {
+			*match = true;
+			dom_node_unref(cur);
+			return CSS_OK;
+		}
+		parent = NULL;
+		err = dom_node_get_parent_node(cur, &parent);
+		dom_node_unref(cur);
+		if (err != DOM_NO_ERR) {
+			break;
+		}
+		cur = parent;
+	}
 
 	return CSS_OK;
 }
@@ -1763,4 +1791,21 @@ static css_error get_libcss_node_data(void *pw, void *node, void **libcss_node_d
 	}
 
 	return CSS_OK;
+}
+
+void nscss_invalidate_node(dom_node *node)
+{
+	void *data = NULL;
+
+	if (node == NULL) {
+		return;
+	}
+
+	if (get_libcss_node_data(NULL, node, &data) != CSS_OK ||
+			data == NULL) {
+		return;
+	}
+
+	css_libcss_node_data_handler(&selection_handler, CSS_NODE_MODIFIED,
+			NULL, node, NULL, data);
 }

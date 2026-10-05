@@ -187,6 +187,7 @@ box_normalise_table_row(struct box *row,
 			assert(row->style != NULL);
 
 			ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 			ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 			ctx.base_url = c->base_url;
 			ctx.universal = c->universal;
@@ -327,6 +328,7 @@ box_normalise_table_row_group(struct box *row_group,
 			assert(row_group->style != NULL);
 
 			ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 			ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 			ctx.base_url = c->base_url;
 			ctx.universal = c->universal;
@@ -406,6 +408,7 @@ box_normalise_table_row_group(struct box *row_group,
 		assert(row_group->style != NULL);
 
 		ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 		ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 		ctx.base_url = c->base_url;
 		ctx.universal = c->universal;
@@ -536,6 +539,7 @@ box_normalise_table_spans(struct box *table,
 					}
 
 					ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 					ctx.quirks = (c->quirks ==
 						DOM_DOCUMENT_QUIRKS_MODE_FULL);
 					ctx.base_url = c->base_url;
@@ -664,6 +668,7 @@ box_normalise_table(struct box *table, const struct box *root, html_content * c)
 			assert(table->style != NULL);
 
 			ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 			ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 			ctx.base_url = c->base_url;
 			ctx.universal = c->universal;
@@ -754,6 +759,7 @@ box_normalise_table(struct box *table, const struct box *root, html_content * c)
 		assert(table->style != NULL);
 
 		ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 		ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 		ctx.base_url = c->base_url;
 		ctx.universal = c->universal;
@@ -863,6 +869,7 @@ static bool box_normalise_flex(
 			assert(flex_container->style != NULL);
 
 			ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 			ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 			ctx.base_url = c->base_url;
 			ctx.universal = c->universal;
@@ -915,6 +922,11 @@ static bool box_normalise_flex(
 			if (box_normalise_table(child, root, c) == false)
 				return false;
 			break;
+		case BOX_NONE:
+			/* display:none placeholder; still normalise descendants */
+			if (box_normalise_block(child, root, c) == false)
+				return false;
+			break;
 		case BOX_INLINE:
 		case BOX_INLINE_END:
 		case BOX_INLINE_FLEX:
@@ -934,6 +946,7 @@ static bool box_normalise_flex(
 			assert(flex_container->style != NULL);
 
 			ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 			ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 			ctx.base_url = c->base_url;
 			ctx.universal = c->universal;
@@ -1103,7 +1116,8 @@ box_normalise_block(struct box *block, const struct box *root, html_content *c)
 #endif
 
 	assert(block->type == BOX_BLOCK || block->type == BOX_INLINE_BLOCK ||
-			block->type == BOX_TABLE_CELL);
+			block->type == BOX_TABLE_CELL ||
+			block->type == BOX_NONE);
 
 	for (child = block->children; child != NULL; child = next_child) {
 #ifdef BOX_NORMALISE_DEBUG
@@ -1132,6 +1146,11 @@ box_normalise_block(struct box *block, const struct box *root, html_content *c)
 			if (box_normalise_table(child, root, c) == false)
 				return false;
 			break;
+		case BOX_NONE:
+			/* display:none placeholder; still normalise descendants */
+			if (box_normalise_block(child, root, c) == false)
+				return false;
+			break;
 		case BOX_INLINE:
 		case BOX_INLINE_END:
 		case BOX_INLINE_FLEX:
@@ -1151,6 +1170,7 @@ box_normalise_block(struct box *block, const struct box *root, html_content *c)
 			assert(block->style != NULL);
 
 			ctx.ctx = c->select_ctx;
+			ctx.hover = c->hover;
 			ctx.quirks = (c->quirks == DOM_DOCUMENT_QUIRKS_MODE_FULL);
 			ctx.base_url = c->base_url;
 			ctx.universal = c->universal;

@@ -225,6 +225,21 @@ typedef struct html_content {
 	 */
 	bool reflow_pending;
 
+	/**
+	 * Deepest element currently under the mouse pointer (for :hover).
+	 * Held with a DOM reference while non-NULL.
+	 */
+	dom_node *hover;
+	/** True while html_set_hover is running (blocks re-entry). */
+	bool hover_busy;
+	/** Set when a restyle changed a box display/type (needs reflow). */
+	bool hover_display_changed;
+	/**
+	 * Open CSS hover dropdown panel to paint above page content
+	 * (NetSurf has no z-index stacking). NULL when closed.
+	 */
+	struct box *hover_overlay;
+
 } html_content;
 
 /**
@@ -252,9 +267,22 @@ void html__redraw_a_box(html_content *htmlc, struct box *box);
 void html_finish_conversion(html_content *htmlc);
 
 /**
- * No-op: remote author CSS is not fetched (see html_css_process_link).
+ * No-op: third-party author CSS is not fetched (see html_css_process_link).
  */
 void html_restyle_deferred_css(html_content *htmlc);
+
+/**
+ * Reselect computed style for one element and update its box type.
+ * Used by JS classList sync and by :hover updates.
+ */
+void html_restyle_element(html_content *html, dom_node *node);
+
+/**
+ * Update the :hover target from the element under the pointer.
+ * Restyles affected chains and reformats when the target changes.
+ * x,y are content coordinates (same space as box_bounds).
+ */
+void html_set_hover(html_content *html, dom_node *node, int x, int y);
 
 
 /**

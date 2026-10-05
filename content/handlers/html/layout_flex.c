@@ -149,8 +149,18 @@ static struct flex_ctx *layout_flex_ctx__create(
 	}
 	ctx->line.alloc = 1;
 
-	ctx->item.count = box_count_children(flex);
-	ctx->item.data = calloc(ctx->item.count, sizeof(*ctx->item.data));
+	ctx->item.count = 0;
+	{
+		const struct box *c;
+
+		for (c = flex->children; c != NULL; c = c->next) {
+			if (c->type != BOX_NONE) {
+				ctx->item.count++;
+			}
+		}
+	}
+	ctx->item.data = calloc(ctx->item.count ? ctx->item.count : 1,
+			sizeof(*ctx->item.data));
 	if (ctx->item.data == NULL) {
 		layout_flex_ctx__destroy(ctx);
 		return NULL;
@@ -349,7 +359,16 @@ static void layout_flex_ctx__populate_item_data(
 	bool horizontal = ctx->horizontal;
 
 	for (struct box *b = flex->children; b != NULL; b = b->next) {
-		struct flex_item_data *item = &ctx->item.data[i++];
+		struct flex_item_data *item;
+
+		/* display:none placeholders are not flex items */
+		if (b->type == BOX_NONE) {
+			b->width = 0;
+			b->height = 0;
+			continue;
+		}
+
+		item = &ctx->item.data[i++];
 
 		b->float_container = b->parent;
 		layout_find_dimensions(ctx->unit_len_ctx, available_width, -1,

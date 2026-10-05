@@ -94,11 +94,15 @@ static struct TextFont *ami_font_bm_open(struct RastPort *rp, const plot_font_st
 		(fstyle->size == prev_fstyle->size)) {
 			 if(rp != prev_rp) {
 				 /* We have the correct font open, but it isn't set here */
+#ifndef __amigaos4__
+				 SetFont(rp, prev_font);
+#else
 				 SetRPAttrs(rp, RPTAG_Font, prev_font, TAG_DONE);
+#endif
 				 prev_rp = rp;
 			 }
 			/* Current font is correct, just SoftStyle it */
-			NSLOG(netsurf, INFO, "Applying SoftStyle to current font");
+			NSLOG(plot, DEEPDEBUG, "Applying SoftStyle to current font");
 			SetSoftStyle(rp, tattr.ta_Style, style_set);
 			return prev_font;
 	}
@@ -107,22 +111,43 @@ static struct TextFont *ami_font_bm_open(struct RastPort *rp, const plot_font_st
 	tattr.ta_Name = font;
 	ULONG fsize = fstyle->size * nsoption_int(screen_ydpi) / 72;
 	tattr.ta_YSize = fsize / PLOT_STYLE_SCALE;
-	NSLOG(netsurf, INFO, "font: %s/%d", tattr.ta_Name, tattr.ta_YSize);
+	if (tattr.ta_YSize < 5) {
+		tattr.ta_YSize = 8;
+	}
+	NSLOG(plot, DEEPDEBUG, "font: %s/%d", tattr.ta_Name, tattr.ta_YSize);
 
 	if(prev_font != NULL) {
 		CloseFont(prev_font);
 		prev_font = NULL;
 	}
 
-	if((bmfont = OpenDiskFont(&tattr))) {
-		SetRPAttrs(rp, RPTAG_Font, bmfont, TAG_DONE);
-		style_set = AskSoftStyle(rp);
-		prev_rp = rp;
-		prev_font = bmfont;
-
-		if(prev_fstyle != NULL) {
-			memcpy(prev_fstyle, fstyle, sizeof(plot_font_style_t));
+	bmfont = OpenDiskFont(&tattr);
+	if (bmfont == NULL) {
+		/* Missing outline-scaled face → always-present topaz. */
+		tattr.ta_Name = (STRPTR)"topaz.font";
+		tattr.ta_YSize = 8;
+		tattr.ta_Style = FS_NORMAL;
+		tattr.ta_Flags = 0;
+		bmfont = OpenDiskFont(&tattr);
+		if (bmfont == NULL) {
+			NSLOG(netsurf, WARNING, "OpenDiskFont failed for %s and topaz",
+			      font);
+			return NULL;
 		}
+		NSLOG(netsurf, INFO, "font fallback: topaz/8 (wanted %s)", font);
+	}
+
+#ifndef __amigaos4__
+	SetFont(rp, bmfont);
+#else
+	SetRPAttrs(rp, RPTAG_Font, bmfont, TAG_DONE);
+#endif
+	style_set = AskSoftStyle(rp);
+	prev_rp = rp;
+	prev_font = bmfont;
+
+	if(prev_fstyle != NULL) {
+		memcpy(prev_fstyle, fstyle, sizeof(plot_font_style_t));
 	}
 
 	return bmfont;

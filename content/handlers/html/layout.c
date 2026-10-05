@@ -992,6 +992,11 @@ static void layout_minmax_block(
 				child_has_height = true;
 				child->flags |= MAKE_HEIGHT;
 				break;
+			case BOX_NONE:
+				/* display:none placeholder kept for JS restyle */
+				child->min_width = 0;
+				child->max_width = 0;
+				break;
 			default:
 				assert(0);
 			}
@@ -3608,6 +3613,14 @@ bool layout_block_context(
 		enum css_overflow_e overflow_x = CSS_OVERFLOW_VISIBLE;
 		enum css_overflow_e overflow_y = CSS_OVERFLOW_VISIBLE;
 
+		/* Zero-size placeholder until JS restyles display:none away */
+		if (box->type == BOX_NONE) {
+			box->width = 0;
+			box->height = 0;
+			box->x = box->parent ? box->parent->padding[LEFT] : 0;
+			goto advance_to_next_box;
+		}
+
 		assert(box->type == BOX_BLOCK ||
 				box->type == BOX_FLEX ||
 				box->type == BOX_TABLE ||
@@ -4588,6 +4601,17 @@ layout_absolute(struct box *box,
 			box->type == BOX_FLEX ||
 			box->type == BOX_INLINE_FLEX);
 
+	/*
+	 * display:none placeholders get max_width=0 and are skipped by the
+	 * document-wide minmax pass. When JS/:hover promotes them to a real
+	 * box, the caller sets max_width to UNKNOWN_MAX_WIDTH; recompute
+	 * shrink-to-fit sizes here (do not invalidate ancestors — that
+	 * reflows the whole page and moves the pointer target).
+	 */
+	if (box->max_width == UNKNOWN_MAX_WIDTH) {
+		layout_minmax_block(box, content->font_func, content);
+	}
+
 	/* The static position is where the box would be if it was not
 	 * absolutely positioned. The x and y are filled in by
 	 * layout_block_context(). */
@@ -5350,6 +5374,17 @@ static void layout_calculate_descendant_bboxes(
 		struct box *box)
 {
 	struct box *child;
+
+	/* display:none placeholders: zero geometry, skip subtree */
+	if (box->type == BOX_NONE) {
+		box->width = 0;
+		box->height = 0;
+		box->descendant_x0 = 0;
+		box->descendant_y0 = 0;
+		box->descendant_x1 = 0;
+		box->descendant_y1 = 0;
+		return;
+	}
 
 	assert(box->width != UNKNOWN_WIDTH);
 	assert(box->height != AUTO);

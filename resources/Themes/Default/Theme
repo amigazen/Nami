@@ -49,6 +49,12 @@ theme_pageinfo_internal:*PROGDIR:Resources/icons/16x16/actions/page-info-interna
 theme_pageinfo_local:*PROGDIR:Resources/icons/16x16/actions/page-info-local.png
 theme_pageinfo_secure:*PROGDIR:Resources/icons/16x16/actions/page-info-secure.png
 theme_pageinfo_warning:*PROGDIR:Resources/icons/16x16/actions/page-info-warning.png
+theme_win_close:closetab.png
+theme_side_newtab:home.png
+theme_side_closetab:closetab.png
+theme_side_toggle:back.png
+theme_side_expand:back.png
+theme_side_collapse:back.png
 ptr_default:*PROGDIR:Resources/Pointers/Default
 ptr_point:*PROGDIR:Resources/Pointers/Point
 ptr_caret:*PROGDIR:Resources/Pointers/Caret

@@ -1470,6 +1470,139 @@ nserror hotlist_add_url(nsurl *url)
 }
 
 
+struct hotlist_find_folder_ctx {
+	const char *title;
+	struct hotlist_folder *folder;
+};
+
+/** Callback for treeview_walk — find folder by title */
+static nserror hotlist_find_folder_walk_cb(void *ctx, void *node_data,
+		enum treeview_node_type type, bool *abort)
+{
+	struct hotlist_find_folder_ctx *fc = ctx;
+	struct hotlist_folder *f;
+
+	if (type != TREE_NODE_FOLDER)
+		return NSERROR_OK;
+
+	f = node_data;
+	if (f != NULL && f->data.value != NULL && fc->title != NULL &&
+	    strcmp(f->data.value, fc->title) == 0) {
+		fc->folder = f;
+		*abort = true;
+	}
+
+	return NSERROR_OK;
+}
+
+struct hotlist_folder_has_url_ctx {
+	const char *folder_title;
+	nsurl *url;
+	bool in_folder;
+	bool found;
+	int depth;
+};
+
+/** Enter/address walk — detect URL inside a named folder */
+static nserror hotlist_folder_has_url_enter_cb(void *ctx, void *node_data,
+		enum treeview_node_type type, bool *abort)
+{
+	struct hotlist_folder_has_url_ctx *fc = ctx;
+	struct hotlist_folder *f;
+	struct hotlist_entry *e;
+
+	if (type == TREE_NODE_FOLDER) {
+		f = node_data;
+		if (fc->depth == 0 && f != NULL && f->data.value != NULL &&
+		    fc->folder_title != NULL &&
+		    strcmp(f->data.value, fc->folder_title) == 0)
+			fc->in_folder = true;
+		fc->depth++;
+	} else if (type == TREE_NODE_ENTRY && fc->in_folder) {
+		e = node_data;
+		if (e != NULL && e->url != NULL &&
+		    nsurl_compare(e->url, fc->url, NSURL_COMPLETE)) {
+			fc->found = true;
+			*abort = true;
+		}
+	}
+
+	return NSERROR_OK;
+}
+
+static nserror hotlist_folder_has_url_leave_cb(void *ctx, void *node_data,
+		enum treeview_node_type type, bool *abort)
+{
+	struct hotlist_folder_has_url_ctx *fc = ctx;
+
+	(void)node_data;
+	(void)abort;
+
+	if (type == TREE_NODE_FOLDER) {
+		fc->depth--;
+		if (fc->depth == 0)
+			fc->in_folder = false;
+	}
+
+	return NSERROR_OK;
+}
+
+/* Exported interface, documented in hotlist.h */
+nserror hotlist_add_url_to_folder(nsurl *url, const char *folder_title)
+{
+	struct hotlist_find_folder_ctx fctx;
+	struct hotlist_folder_has_url_ctx hctx;
+	struct hotlist_folder *hf;
+	treeview_node *entry;
+	nserror err;
+
+	if (hl_ctx.tree == NULL)
+		return NSERROR_OK;
+	if (url == NULL || folder_title == NULL)
+		return NSERROR_BAD_PARAMETER;
+
+	hctx.folder_title = folder_title;
+	hctx.url = url;
+	hctx.in_folder = false;
+	hctx.found = false;
+	hctx.depth = 0;
+	err = treeview_walk(hl_ctx.tree, NULL,
+			hotlist_folder_has_url_enter_cb,
+			hotlist_folder_has_url_leave_cb,
+			&hctx, TREE_NODE_ENTRY | TREE_NODE_FOLDER);
+	if (err != NSERROR_OK)
+		return err;
+	if (hctx.found)
+		return NSERROR_OK;
+
+	fctx.title = folder_title;
+	fctx.folder = NULL;
+	err = treeview_walk(hl_ctx.tree, NULL, hotlist_find_folder_walk_cb, NULL,
+			&fctx, TREE_NODE_FOLDER);
+	if (err != NSERROR_OK)
+		return err;
+
+	hf = fctx.folder;
+	if (hf == NULL) {
+		err = hotlist_add_folder_internal(folder_title, NULL,
+				TREE_REL_FIRST_CHILD, &hf, false);
+		if (err != NSERROR_OK)
+			return err;
+	}
+
+	err = hotlist_add_entry_internal(url, NULL, NULL,
+			hf->folder, TREE_REL_FIRST_CHILD, &entry);
+	if (err != NSERROR_OK)
+		return err;
+
+	err = treeview_node_expand(hl_ctx.tree, hf->folder);
+	if (err != NSERROR_OK)
+		return err;
+
+	return hotlist_schedule_save();
+}
+
+
 struct treeview_has_url_walk_ctx {
 	nsurl *url;
 	bool found;

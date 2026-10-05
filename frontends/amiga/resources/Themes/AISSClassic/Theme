@@ -36,6 +36,12 @@ theme_pageinfo_internal:*TBImages:list_info
 theme_pageinfo_local:*TBImages:list_info
 theme_pageinfo_secure:*TBImages:list_lock
 theme_pageinfo_warning:*TBImages:list_warning
+theme_win_close:*TBImages:list_cancel
+theme_side_newtab:*TBImages:list_tabadd
+theme_side_closetab:*TBImages:list_tabremove
+theme_side_toggle:*TBImages:toolbar
+theme_side_expand:*TBImages:toolbar
+theme_side_collapse:*TBImages:toolbar
 ptr_default:*PROGDIR:Resources/Pointers/Default
 ptr_point:*PROGDIR:Resources/Pointers/Point
 ptr_caret:*PROGDIR:Resources/Pointers/Caret

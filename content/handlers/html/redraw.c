@@ -1996,6 +1996,26 @@ bool html_redraw(struct content *c, struct content_redraw_data *data,
 				data->scale, clip, ctx);
 	}
 
+	/*
+	 * CSS hover dropdowns use position:absolute + z-index. NetSurf does
+	 * not implement z-index stacking, so page content paints over the
+	 * panel. Redraw the open overlay last (same idea as select menus).
+	 */
+	if (ctx->interactive && html->hover_overlay != NULL &&
+			html->hover_overlay->type != BOX_NONE &&
+			html->hover_overlay->width > 0 &&
+			html->hover_overlay->height > 0) {
+		int ox, oy;
+		struct box *ob = html->hover_overlay;
+
+		box_coords(ob, &ox, &oy);
+		result &= html_redraw_box(html, ob,
+				data->x + ox - ob->x,
+				data->y + oy - ob->y,
+				clip, data->scale,
+				pstyle_fill_bg.fill_colour, ctx);
+	}
+
 	return result;
 
 }

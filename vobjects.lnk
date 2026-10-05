@@ -47,6 +47,7 @@ build/vbcc-os3/content_fetchers_about_certificate.o
 build/vbcc-os3/content_fetchers_about_chart.o
 build/vbcc-os3/content_fetchers_about_choices.o
 build/vbcc-os3/content_fetchers_about_config.o
+build/vbcc-os3/content_fetchers_about_home.o
 build/vbcc-os3/content_fetchers_about_imagecache.o
 build/vbcc-os3/content_fetchers_about_nscolours.o
 build/vbcc-os3/content_fetchers_about_query.o

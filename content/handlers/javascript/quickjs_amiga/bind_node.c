@@ -61,6 +61,18 @@ qjs_sync(JSContext *ctx, dom_node *node)
 	qjs_dom_sync_text((html_content *)thread->doc_priv, node);
 }
 
+static void
+qjs_sync_style(JSContext *ctx, dom_node *node)
+{
+	jsthread *thread;
+
+	thread = qjs_thread_from_ctx(ctx);
+	if (thread == NULL || thread->doc_priv == NULL || node == NULL) {
+		return;
+	}
+	qjs_dom_sync_style((html_content *)thread->doc_priv, node);
+}
+
 static dom_string *
 qjs_arg_str(JSContext *ctx, JSValueConst v)
 {
@@ -959,6 +971,7 @@ js_class_set(JSContext *ctx, JSValueConst this_val, JSValueConst val)
 	if (node != NULL && s != NULL) {
 		dom_element_set_attribute(node, corestring_dom_class, s);
 		dom_string_unref(s);
+		qjs_sync_style(ctx, node);
 	}
 	return JS_UNDEFINED;
 }
@@ -1075,6 +1088,12 @@ js_class_list(JSContext *ctx, JSValueConst this_val)
 	}
 	out = qjs_push_tokenlist(ctx, tokens);
 	dom_tokenlist_unref(tokens);
+	/* Keep the element so classList mutations can restyle its box. */
+	if (!JS_IsException(out) && !JS_IsNull(out)) {
+		JS_DefinePropertyValueStr(ctx, out, "\xff""nami_owner",
+				qjs_push_node(ctx, node),
+				JS_PROP_CONFIGURABLE);
+	}
 	return out;
 }
 

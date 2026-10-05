@@ -389,3 +389,22 @@ body#fetcherror div#buttons {
 body#fetcherror div#buttons input#back {
   margin-right: 1em;
 }
+
+/*
+ * about:home — search + history / hotlist lists
+ */
+
+body#home form.home-search {
+	margin: 1em 5mm 1.5em 5mm;
+}
+
+body#home form.home-search input[type=text] {
+	width: 70%;
+	padding: 0.25em;
+}
+
+body#home form.home-search input[type=submit] {
+	padding: 0.25em 0.75em;
+	margin-left: 0.4em;
+}
+

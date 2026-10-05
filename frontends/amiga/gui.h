@@ -311,6 +311,9 @@ void ami_gui_set_throbbing(struct gui_window *gw, bool throbbing);
  */
 Object *ami_gui2_get_object(struct gui_window_2 *gwin, int object_type);
 
+/* Redraw Nami zoom/depth after a chrome or toolbar fill. */
+void ami_gui_nami_refresh_corner_gadgets(struct gui_window_2 *gwin);
+
 /**
  * Get window from gui_window
  */

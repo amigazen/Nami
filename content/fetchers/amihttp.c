@@ -121,6 +121,9 @@ struct amihttp_fetch_info {
 	int worker_idx;
 	ULONG wait_started_sec;
 	bool watchdog_signalled;
+	/** Body bytes seen by the worker drain (progress for the watchdog). */
+	volatile size_t body_progress;
+	size_t watchdog_seen_progress;
 	/** Job pointer so a wedged fetch can detach without Free-while-Perform. */
 	volatile struct amihttp_worker_job *job;
 	enum amihttp_phase phase;
@@ -687,6 +690,8 @@ amihttp_worker_drain_body(struct amihttp_fetch_info *f,
 		}
 		memcpy(f->body_data + f->body_len, chunk, (size_t)n);
 		f->body_len += (size_t)n;
+		/* Main-task watchdog treats growth as life (slow TLS OK). */
+		f->body_progress = f->body_len;
 	}
 }
 
@@ -761,13 +766,29 @@ amihttp_perform_worker(void)
 		 */
 		f = job->f;
 		if (f != NULL) {
+			LONG drain_err;
+
 			f->perform_rv = rv;
 			/*
 			 * Perform returns TRUE (non-zero) on success.  Drain
 			 * the entity so keep-alive can pool the socket.
 			 */
+			drain_err = 0;
 			if (rv != 0) {
 				amihttp_worker_drain_body(f, job->txn);
+				drain_err = HttpTransactionGetLastError(job->txn);
+				/*
+				 * CTRL_C / short read mid-drain leaves a dead
+				 * socket in the pool; next reuse is 8702/8704.
+				 */
+				if (drain_err == ERROR_HTTP_READ_FAILED ||
+						drain_err == ERROR_HTTP_ABORTED) {
+					if (HttpBase != NULL) {
+						HttpBaseTags(HTBT_POOL_FLUSH,
+							     (ULONG)FALSE,
+							     TAG_DONE);
+					}
+				}
 			} else if (HttpBase != NULL) {
 				/*
 				 * Failed Perform often leaves a dead socket in
@@ -1071,6 +1092,8 @@ amihttp_queue_worker(struct amihttp_worker *w, struct amihttp_fetch_info *f)
 	f->worker_idx = (int)(w - amihttp_workers);
 	f->wait_started_sec = amihttp_now_sec();
 	f->watchdog_signalled = false;
+	f->body_progress = 0;
+	f->watchdog_seen_progress = 0;
 	f->job = job;
 
 	if (f->host != NULL) {
@@ -1536,6 +1559,18 @@ amihttp_poll_one(struct amihttp_fetch_info *f)
 				? (now - f->wait_started_sec) : 0;
 
 			/*
+			 * Bytes still arriving (slow TLS body drain): slide the
+			 * watchdog window so CTRL_C does not abort a live read
+			 * and poison keep-alive.
+			 */
+			if (f->body_progress != f->watchdog_seen_progress) {
+				f->watchdog_seen_progress = f->body_progress;
+				f->wait_started_sec = now;
+				f->watchdog_signalled = false;
+				elapsed = 0;
+			}
+
+			/*
 			 * Stuck fetch: HTML conversion waits forever while
 			 * stylesheet fetches sit in AH_WAIT (amigans xoops.css
 			 * / style.css never completed in ns.log).  Re-signal
@@ -1603,6 +1638,19 @@ amihttp_poll_one(struct amihttp_fetch_info *f)
 		      connect_ms == 0 ? " [keepalive reuse]" : "",
 		      HttpGetErrorString(err) != NULL
 			      ? (char *)HttpGetErrorString(err) : "");
+
+		/*
+		 * Truncated / aborted bodies with HTTP 200 used to be treated
+		 * as success (partial CSS → huge badges / missing hamburger).
+		 * Fail the fetch; the worker already flushed keep-alive.
+		 */
+		if (err == ERROR_HTTP_READ_FAILED ||
+				err == ERROR_HTTP_WRITE_FAILED ||
+				err == ERROR_HTTP_ABORTED) {
+			amihttp_send_error(f, err);
+			amihttp_finish(f, false);
+			return false;
+		}
 
 		if ((f->perform_rv == 0 || err != 0) &&
 		    HttpTransactionGetStatusCode(f->txn) == 0) {

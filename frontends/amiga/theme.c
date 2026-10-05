@@ -375,6 +375,8 @@ void gui_window_stop_throbber(struct gui_window *g)
 
 	ami_gui_set_throbbing(g, false);
 	ami_throbber_redraw_schedule(-1, g);
+	/* Idle throbber fill is the toolbar grey; put the glyphs back. */
+	ami_gui_nami_refresh_corner_gadgets(ami_gui_get_gui_window_2(g));
 }
 
 static void ami_throbber_update(void *p)
@@ -428,6 +430,9 @@ static void ami_throbber_update(void *p)
 		}
 		ami_gui_free_space_box(bbox);
 	}
+
+	/* Frame blit shares the chrome row with the corner glyphs. */
+	ami_gui_nami_refresh_corner_gadgets(ami_gui_get_gui_window_2(g));
 
 	if(frame > 0) ami_throbber_redraw_schedule(throbber_update_interval, g);
 }
